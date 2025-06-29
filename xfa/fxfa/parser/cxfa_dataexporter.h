@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,31 +7,17 @@
 #ifndef XFA_FXFA_PARSER_CXFA_DATAEXPORTER_H_
 #define XFA_FXFA_PARSER_CXFA_DATAEXPORTER_H_
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CXFA_Document;
 class CXFA_Node;
-class IFX_SeekableWriteStream;
-class IFGAS_Stream;
+class IFX_SeekableStream;
 
 class CXFA_DataExporter {
  public:
-  explicit CXFA_DataExporter(CXFA_Document* pDocument);
+  CXFA_DataExporter();
+  ~CXFA_DataExporter();
 
-  bool Export(const CFX_RetainPtr<IFX_SeekableWriteStream>& pWrite);
-  bool Export(const CFX_RetainPtr<IFX_SeekableWriteStream>& pWrite,
-              CXFA_Node* pNode,
-              uint32_t dwFlag,
-              const FX_CHAR* pChecksum);
-
- protected:
-  bool Export(const CFX_RetainPtr<IFGAS_Stream>& pStream,
-              CXFA_Node* pNode,
-              uint32_t dwFlag,
-              const FX_CHAR* pChecksum);
-
-  CXFA_Document* const m_pDocument;
+  bool Export(const RetainPtr<IFX_SeekableStream>& pWrite, CXFA_Node* pNode);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_DATAEXPORTER_H_

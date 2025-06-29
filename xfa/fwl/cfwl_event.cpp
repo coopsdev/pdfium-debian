@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,18 @@
 
 #include "xfa/fwl/cfwl_event.h"
 
-CFWL_Event::CFWL_Event(CFWL_Event::Type type)
-    : CFWL_Event(type, nullptr, nullptr) {}
+namespace pdfium {
+
+CFWL_Event::CFWL_Event(CFWL_Event::Type type) : type_(type) {}
 
 CFWL_Event::CFWL_Event(Type type, CFWL_Widget* pSrcTarget)
-    : CFWL_Event(type, pSrcTarget, nullptr) {}
+    : type_(type), src_target_(pSrcTarget) {}
 
 CFWL_Event::CFWL_Event(Type type,
                        CFWL_Widget* pSrcTarget,
                        CFWL_Widget* pDstTarget)
-    : m_pSrcTarget(pSrcTarget), m_pDstTarget(pDstTarget), m_type(type) {}
+    : type_(type), src_target_(pSrcTarget), dst_target_(pDstTarget) {}
 
-CFWL_Event::~CFWL_Event() {}
+CFWL_Event::~CFWL_Event() = default;
+
+}  // namespace pdfium

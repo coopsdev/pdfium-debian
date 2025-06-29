@@ -23,16 +23,21 @@
 //
 //----------------------------------------------------------------------------
 
-#include "agg_math.h"
 #include "agg_path_storage.h"
-#include "core/fxcrt/fx_basic.h"
 
+#include <string.h>
+
+#include "agg_math.h"
+#include "core/fxcrt/fx_memory.h"
+
+namespace pdfium
+{
 namespace agg
 {
 path_storage::~path_storage()
 {
     if(m_total_blocks) {
-        FX_FLOAT** coord_blk = m_coord_blocks + m_total_blocks - 1;
+        float** coord_blk = m_coord_blocks + m_total_blocks - 1;
         while(m_total_blocks--) {
             FX_Free(*coord_blk);
             --coord_blk;
@@ -40,39 +45,41 @@ path_storage::~path_storage()
         FX_Free(m_coord_blocks);
     }
 }
-path_storage::path_storage() :
-    m_total_vertices(0),
-    m_total_blocks(0),
-    m_max_blocks(0),
-    m_coord_blocks(0),
-    m_cmd_blocks(0),
-    m_iterator(0)
-{
+path_storage::path_storage() = default;
+path_storage::path_storage(path_storage&& other) {
+    m_total_vertices = other.m_total_vertices;
+    m_total_blocks = other.m_total_blocks;
+    m_max_blocks = other.m_max_blocks;
+    m_coord_blocks = other.m_coord_blocks;
+    m_cmd_blocks = other.m_cmd_blocks;
+    m_iterator = other.m_iterator;
+    other.m_total_vertices = 0;
+    other.m_total_blocks = 0;
+    other.m_max_blocks = 0;
+    other.m_coord_blocks = nullptr;
+    other.m_cmd_blocks = nullptr;
+    other.m_iterator = 0;
 }
 void path_storage::allocate_block(unsigned nb)
 {
     if(nb >= m_max_blocks) {
-        FX_FLOAT** new_coords =
-            FX_Alloc2D(FX_FLOAT*, m_max_blocks + block_pool, 2);
+        float** new_coords =
+            FX_Alloc2D(float*, m_max_blocks + block_pool, 2);
         unsigned char** new_cmds =
             (unsigned char**)(new_coords + m_max_blocks + block_pool);
         if(m_coord_blocks) {
-            FXSYS_memcpy(new_coords,
-                           m_coord_blocks,
-                           m_max_blocks * sizeof(FX_FLOAT*));
-            FXSYS_memcpy(new_cmds,
-                           m_cmd_blocks,
-                           m_max_blocks * sizeof(unsigned char*));
-            FX_Free(m_coord_blocks);
+          memcpy(new_coords, m_coord_blocks, m_max_blocks * sizeof(float*));
+          memcpy(new_cmds, m_cmd_blocks, m_max_blocks * sizeof(unsigned char*));
+          FX_Free(m_coord_blocks);
         }
         m_coord_blocks = new_coords;
         m_cmd_blocks = new_cmds;
         m_max_blocks += block_pool;
     }
     m_coord_blocks[nb] =
-        FX_Alloc( FX_FLOAT, block_size * 2 +
+        FX_Alloc( float, block_size * 2 +
                   block_size /
-                  (sizeof(FX_FLOAT) / sizeof(unsigned char)));
+                  (sizeof(float) / sizeof(unsigned char)));
     m_cmd_blocks[nb]  =
         (unsigned char*)(m_coord_blocks[nb] + block_size * 2);
     m_total_blocks++;
@@ -81,9 +88,9 @@ void path_storage::rewind(unsigned path_id)
 {
     m_iterator = path_id;
 }
-void path_storage::curve4(FX_FLOAT x_ctrl1, FX_FLOAT y_ctrl1,
-                          FX_FLOAT x_ctrl2, FX_FLOAT y_ctrl2,
-                          FX_FLOAT x_to,    FX_FLOAT y_to)
+void path_storage::curve4(float x_ctrl1, float y_ctrl1,
+                          float x_ctrl2, float y_ctrl2,
+                          float x_to,    float y_to)
 {
     add_vertex(x_ctrl1, y_ctrl1, path_cmd_curve4);
     add_vertex(x_ctrl2, y_ctrl2, path_cmd_curve4);
@@ -93,8 +100,9 @@ void path_storage::end_poly()
 {
     if(m_total_vertices) {
         if(is_vertex(command(m_total_vertices - 1))) {
-            add_vertex(0, 0, path_cmd_end_poly | path_flags_close);
+            add_vertex(0, 0, unsigned{path_cmd_end_poly} | path_flags_close);
         }
     }
 }
 }
+}  // namespace pdfium

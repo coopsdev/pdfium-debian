@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,55 +6,42 @@
 
 #include "xfa/fwl/cfwl_datetimeedit.h"
 
-#include <memory>
-#include <utility>
-
-#include "third_party/base/ptr_util.h"
 #include "xfa/fwl/cfwl_datetimepicker.h"
 #include "xfa/fwl/cfwl_messagemouse.h"
 #include "xfa/fwl/cfwl_widgetmgr.h"
 
-CFWL_DateTimeEdit::CFWL_DateTimeEdit(
-    const CFWL_App* app,
-    std::unique_ptr<CFWL_WidgetProperties> properties,
-    CFWL_Widget* pOuter)
-    : CFWL_Edit(app, std::move(properties), pOuter) {}
+namespace pdfium {
+
+CFWL_DateTimeEdit::CFWL_DateTimeEdit(CFWL_App* app,
+                                     const Properties& properties,
+                                     CFWL_Widget* pOuter)
+    : CFWL_Edit(app, properties, pOuter) {}
+
+CFWL_DateTimeEdit::~CFWL_DateTimeEdit() = default;
 
 void CFWL_DateTimeEdit::OnProcessMessage(CFWL_Message* pMessage) {
-  if (m_pWidgetMgr->IsFormDisabled()) {
-    DisForm_OnProcessMessage(pMessage);
-    return;
-  }
-
-  CFWL_Message::Type type = pMessage->GetType();
-  if (type == CFWL_Message::Type::SetFocus ||
-      type == CFWL_Message::Type::KillFocus) {
-    CFWL_Widget* pOuter = GetOuter();
-    pOuter->GetDelegate()->OnProcessMessage(pMessage);
-  }
-}
-
-void CFWL_DateTimeEdit::DisForm_OnProcessMessage(CFWL_Message* pMessage) {
-  if (!m_pWidgetMgr->IsFormDisabled() ||
-      pMessage->GetType() != CFWL_Message::Type::Mouse) {
+  if (pMessage->GetType() != CFWL_Message::Type::kMouse) {
     CFWL_Edit::OnProcessMessage(pMessage);
     return;
   }
 
   CFWL_MessageMouse* pMouse = static_cast<CFWL_MessageMouse*>(pMessage);
-  if (pMouse->m_dwCmd == FWL_MouseCommand::LeftButtonDown ||
-      pMouse->m_dwCmd == FWL_MouseCommand::RightButtonDown) {
-    if ((m_pProperties->m_dwStates & FWL_WGTSTATE_Focused) == 0)
-      m_pProperties->m_dwStates |= FWL_WGTSTATE_Focused;
+  if (pMouse->cmd_ == CFWL_MessageMouse::MouseCommand::kLeftButtonDown ||
+      pMouse->cmd_ == CFWL_MessageMouse::MouseCommand::kRightButtonDown) {
+    if ((properties_.states_ & FWL_STATE_WGT_Focused) == 0) {
+      properties_.states_ |= FWL_STATE_WGT_Focused;
+    }
 
     CFWL_DateTimePicker* pDateTime =
-        static_cast<CFWL_DateTimePicker*>(m_pOuter);
+        static_cast<CFWL_DateTimePicker*>(GetOuter());
     if (pDateTime->IsMonthCalendarVisible()) {
       CFX_RectF rtInvalidate = pDateTime->GetWidgetRect();
-      pDateTime->ShowMonthCalendar(false);
+      pDateTime->HideMonthCalendar();
       rtInvalidate.Offset(-rtInvalidate.left, -rtInvalidate.top);
       pDateTime->RepaintRect(rtInvalidate);
     }
   }
   CFWL_Edit::OnProcessMessage(pMessage);
 }
+
+}  // namespace pdfium

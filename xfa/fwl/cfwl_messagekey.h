@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,23 +7,30 @@
 #ifndef XFA_FWL_CFWL_MESSAGEKEY_H_
 #define XFA_FWL_CFWL_MESSAGEKEY_H_
 
-#include <memory>
-
+#include "core/fxcrt/mask.h"
 #include "xfa/fwl/cfwl_message.h"
+#include "xfa/fwl/fwl_widgetdef.h"
 
-enum class FWL_KeyCommand { KeyDown, KeyUp, Char };
+namespace pdfium {
 
-class CFWL_MessageKey : public CFWL_Message {
+class CFWL_MessageKey final : public CFWL_Message {
  public:
-  CFWL_MessageKey(CFWL_Widget* pSrcTarget, CFWL_Widget* pDstTarget);
+  enum class KeyCommand : uint8_t { kKeyDown, kChar };
+
+  CFWL_MessageKey(CFWL_Widget* pDstTarget,
+                  KeyCommand subtype,
+                  Mask<XFA_FWL_KeyFlag> flags,
+                  uint32_t dwKeyCodeOrChar);
   ~CFWL_MessageKey() override;
 
-  // CFWL_Message
-  std::unique_ptr<CFWL_Message> Clone() override;
-
-  uint32_t m_dwKeyCode;
-  uint32_t m_dwFlags;
-  FWL_KeyCommand m_dwCmd;
+  const KeyCommand cmd_;
+  const Mask<XFA_FWL_KeyFlag> flags_;
+  const uint32_t key_code_or_char_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MessageKey;
 
 #endif  // XFA_FWL_CFWL_MESSAGEKEY_H_

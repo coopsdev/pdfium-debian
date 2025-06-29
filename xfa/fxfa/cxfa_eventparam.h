@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #ifndef XFA_FXFA_CXFA_EVENTPARAM_H_
 #define XFA_FXFA_CXFA_EVENTPARAM_H_
 
+#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxcrt/widestring.h"
+#include "v8/include/cppgc/macros.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
-class CXFA_WidgetAcc;
-
-enum XFA_EVENTTYPE {
+enum XFA_EVENTTYPE : uint8_t {
   XFA_EVENT_Click,
   XFA_EVENT_Change,
   XFA_EVENT_DocClose,
@@ -47,33 +48,34 @@ enum XFA_EVENTTYPE {
 
 class CXFA_EventParam {
  public:
-  CXFA_EventParam();
-  ~CXFA_EventParam();
+  explicit CXFA_EventParam(XFA_EVENTTYPE type);
   CXFA_EventParam(const CXFA_EventParam& other);
+  ~CXFA_EventParam();
 
-  void Reset();
+  CXFA_EventParam& operator=(const CXFA_EventParam& other);
+  CXFA_EventParam& operator=(CXFA_EventParam&& other) noexcept;
 
-  CXFA_WidgetAcc* m_pTarget;
-  XFA_EVENTTYPE m_eType;
-  CFX_WideString m_wsResult;
-  bool m_bCancelAction;
-  int32_t m_iCommitKey;
-  bool m_bKeyDown;
-  bool m_bModifier;
-  bool m_bReenter;
-  int32_t m_iSelEnd;
-  int32_t m_iSelStart;
-  bool m_bShift;
-  CFX_WideString m_wsChange;
-  CFX_WideString m_wsFullText;
-  CFX_WideString m_wsNewContentType;
-  CFX_WideString m_wsNewText;
-  CFX_WideString m_wsPrevContentType;
-  CFX_WideString m_wsPrevText;
-  CFX_WideString m_wsSoapFaultCode;
-  CFX_WideString m_wsSoapFaultString;
-  bool m_bIsFormReady;
-  int32_t m_iValidateActivities;
+  WideString GetNewText() const;
+
+  XFA_EVENTTYPE type_;
+  bool cancel_action_ = false;
+  bool key_down_ = false;
+  bool modifier_ = false;
+  bool reenter_ = false;
+  bool shift_ = false;
+  bool is_form_ready_ = false;
+  bool targeted_ = true;
+  int32_t commit_key_ = 0;
+  int32_t sel_end_ = 0;
+  int32_t sel_start_ = 0;
+  WideString result_;
+  WideString change_;
+  WideString full_text_;
+  WideString new_content_type_;
+  WideString prev_content_type_;
+  WideString prev_text_;
+  WideString soap_fault_code_;
+  WideString soap_fault_string_;
 };
 
 #endif  // XFA_FXFA_CXFA_EVENTPARAM_H_

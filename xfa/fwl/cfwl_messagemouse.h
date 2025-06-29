@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,36 +7,42 @@
 #ifndef XFA_FWL_CFWL_MESSAGEMOUSE_H_
 #define XFA_FWL_CFWL_MESSAGEMOUSE_H_
 
-#include <memory>
-
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/mask.h"
 #include "xfa/fwl/cfwl_message.h"
+#include "xfa/fwl/fwl_widgetdef.h"
 
-enum class FWL_MouseCommand {
-  LeftButtonDown,
-  LeftButtonUp,
-  LeftButtonDblClk,
-  RightButtonDown,
-  RightButtonUp,
-  RightButtonDblClk,
-  Move,
-  Enter,
-  Leave,
-  Hover
-};
+namespace pdfium {
 
-class CFWL_MessageMouse : public CFWL_Message {
+class CFWL_MessageMouse final : public CFWL_Message {
  public:
-  CFWL_MessageMouse(CFWL_Widget* pSrcTarget, CFWL_Widget* pDstTarget);
-  CFWL_MessageMouse(const CFWL_MessageMouse& other);
+  enum class MouseCommand : uint8_t {
+    kLeftButtonDown,
+    kLeftButtonUp,
+    kLeftButtonDblClk,
+    kRightButtonDown,
+    kRightButtonUp,
+    kRightButtonDblClk,
+    kMove,
+    kEnter,
+    kLeave,
+    kHover
+  };
+
+  CFWL_MessageMouse(CFWL_Widget* pDstTarget,
+                    MouseCommand cmd,
+                    Mask<XFA_FWL_KeyFlag> flags,
+                    CFX_PointF pos);
   ~CFWL_MessageMouse() override;
 
-  // CFWL_Message
-  std::unique_ptr<CFWL_Message> Clone() override;
-
-  CFX_PointF m_pos;
-  uint32_t m_dwFlags;
-  FWL_MouseCommand m_dwCmd;
+  const MouseCommand cmd_;
+  Mask<XFA_FWL_KeyFlag> flags_;
+  CFX_PointF pos_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MessageMouse;
 
 #endif  // XFA_FWL_CFWL_MESSAGEMOUSE_H_

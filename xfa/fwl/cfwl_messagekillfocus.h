@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,27 @@
 #ifndef XFA_FWL_CFWL_MESSAGEKILLFOCUS_H_
 #define XFA_FWL_CFWL_MESSAGEKILLFOCUS_H_
 
-#include <memory>
-
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fwl/cfwl_message.h"
 
-class CFWL_MessageKillFocus : public CFWL_Message {
+namespace pdfium {
+
+class CFWL_MessageKillFocus final : public CFWL_Message {
  public:
-  explicit CFWL_MessageKillFocus(CFWL_Widget* pSrcTarget);
-  CFWL_MessageKillFocus(CFWL_Widget* pSrcTarget, CFWL_Widget* pDstTarget);
+  explicit CFWL_MessageKillFocus(CFWL_Widget* pDstTarget);
   ~CFWL_MessageKillFocus() override;
 
-  // CFWL_Message
-  std::unique_ptr<CFWL_Message> Clone() override;
+  bool IsFocusedOnWidget(const CFWL_Widget* pWidget) const {
+    return pWidget == set_focus_;
+  }
 
-  CFWL_Widget* m_pSetFocus;
+ private:
+  UnownedPtr<CFWL_Widget> set_focus_;  // Ok, stack-only.
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MessageKillFocus;
 
 #endif  // XFA_FWL_CFWL_MESSAGEKILLFOCUS_H_

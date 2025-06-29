@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,43 +10,36 @@
 
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 
-CPDF_ContentMarkItem::CPDF_ContentMarkItem()
-    : m_ParamType(None), m_pPropertiesDict(nullptr) {}
+CPDF_ContentMarkItem::CPDF_ContentMarkItem(ByteString name)
+    : mark_name_(std::move(name)) {}
 
-CPDF_ContentMarkItem::CPDF_ContentMarkItem(const CPDF_ContentMarkItem& that)
-    : m_MarkName(that.m_MarkName),
-      m_ParamType(that.m_ParamType),
-      m_pPropertiesDict(that.m_pPropertiesDict) {
-  if (that.m_pDirectDict)
-    m_pDirectDict = ToDictionary(that.m_pDirectDict->Clone());
-}
+CPDF_ContentMarkItem::~CPDF_ContentMarkItem() = default;
 
-CPDF_ContentMarkItem::~CPDF_ContentMarkItem() {}
-
-CPDF_Dictionary* CPDF_ContentMarkItem::GetParam() const {
-  switch (m_ParamType) {
-    case PropertiesDict:
-      return m_pPropertiesDict;
-    case DirectDict:
-      return m_pDirectDict.get();
-    case None:
-    default:
+RetainPtr<const CPDF_Dictionary> CPDF_ContentMarkItem::GetParam() const {
+  switch (param_type_) {
+    case kPropertiesDict:
+      return properties_holder_->GetDictFor(property_name_.AsStringView());
+    case kDirectDict:
+      return direct_dict_;
+    case kNone:
       return nullptr;
   }
 }
 
-bool CPDF_ContentMarkItem::HasMCID() const {
-  CPDF_Dictionary* pDict = GetParam();
-  return pDict && pDict->KeyExist("MCID");
+RetainPtr<CPDF_Dictionary> CPDF_ContentMarkItem::GetParam() {
+  return pdfium::WrapRetain(
+      const_cast<CPDF_Dictionary*>(std::as_const(*this).GetParam().Get()));
 }
 
-void CPDF_ContentMarkItem::SetDirectDict(
-    std::unique_ptr<CPDF_Dictionary> pDict) {
-  m_ParamType = DirectDict;
-  m_pDirectDict = std::move(pDict);
+void CPDF_ContentMarkItem::SetDirectDict(RetainPtr<CPDF_Dictionary> dict) {
+  param_type_ = kDirectDict;
+  direct_dict_ = std::move(dict);
 }
 
-void CPDF_ContentMarkItem::SetPropertiesDict(CPDF_Dictionary* pDict) {
-  m_ParamType = PropertiesDict;
-  m_pPropertiesDict = pDict;
+void CPDF_ContentMarkItem::SetPropertiesHolder(
+    RetainPtr<CPDF_Dictionary> pHolder,
+    const ByteString& property_name) {
+  param_type_ = kPropertiesDict;
+  properties_holder_ = std::move(pHolder);
+  property_name_ = property_name;
 }

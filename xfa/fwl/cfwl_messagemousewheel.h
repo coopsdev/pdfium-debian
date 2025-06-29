@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,23 +7,31 @@
 #ifndef XFA_FWL_CFWL_MESSAGEMOUSEWHEEL_H_
 #define XFA_FWL_CFWL_MESSAGEMOUSEWHEEL_H_
 
-#include <memory>
-
 #include "core/fxcrt/fx_coordinates.h"
 #include "xfa/fwl/cfwl_message.h"
 
-class CFWL_MessageMouseWheel : public CFWL_Message {
+namespace pdfium {
+
+class CFWL_MessageMouseWheel final : public CFWL_Message {
  public:
-  CFWL_MessageMouseWheel(CFWL_Widget* pSrcTarget, CFWL_Widget* pDstTarget);
-  CFWL_MessageMouseWheel(const CFWL_MessageMouseWheel&);
+  CFWL_MessageMouseWheel(CFWL_Widget* destination,
+                         const CFX_PointF& pos,
+                         const CFX_Vector& delta);
   ~CFWL_MessageMouseWheel() override;
 
-  // CFWL_Message
-  std::unique_ptr<CFWL_Message> Clone() override;
+  void set_pos(const CFX_PointF& pos) { pos_ = pos; }
+  const CFX_PointF& pos() const { return pos_; }
 
-  CFX_PointF m_pos;
-  CFX_PointF m_delta;
-  uint32_t m_dwFlags;
+  const CFX_Vector& delta() const { return delta_; }
+
+ private:
+  CFX_PointF pos_;
+  const CFX_Vector delta_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MessageMouseWheel;
 
 #endif  // XFA_FWL_CFWL_MESSAGEMOUSEWHEEL_H_

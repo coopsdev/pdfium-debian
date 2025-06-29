@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,52 +7,58 @@
 #ifndef CORE_FPDFTEXT_CPDF_TEXTPAGEFIND_H_
 #define CORE_FPDFTEXT_CPDF_TEXTPAGEFIND_H_
 
+#include <stddef.h>
+
+#include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxcrt/widestring.h"
 
 class CPDF_TextPage;
 
 class CPDF_TextPageFind {
  public:
-  explicit CPDF_TextPageFind(const CPDF_TextPage* pTextPage);
+  struct Options {
+    bool bMatchCase = false;
+    bool bMatchWholeWord = false;
+    bool bConsecutive = false;
+  };
+
+  static std::unique_ptr<CPDF_TextPageFind> Create(
+      const CPDF_TextPage* pTextPage,
+      const WideString& findwhat,
+      const Options& options,
+      std::optional<size_t> startPos);
+
   ~CPDF_TextPageFind();
 
-  bool FindFirst(const CFX_WideString& findwhat, int flags, int startPos = 0);
   bool FindNext();
   bool FindPrev();
   int GetCurOrder() const;
   int GetMatchedCount() const;
 
- protected:
-  void ExtractFindWhat(const CFX_WideString& findwhat);
-  bool IsMatchWholeWord(const CFX_WideString& csPageText,
-                        int startPos,
-                        int endPos);
-  bool ExtractSubString(CFX_WideString& rString,
-                        const FX_WCHAR* lpszFullString,
-                        int iSubString,
-                        FX_WCHAR chSep);
-  CFX_WideString MakeReverse(const CFX_WideString& str);
+ private:
+  CPDF_TextPageFind(const CPDF_TextPage* pTextPage,
+                    const std::vector<WideString>& findwhat_array,
+                    const Options& options,
+                    std::optional<size_t> startPos);
+
+  // Should be called immediately after construction.
+  bool FindFirst();
+
   int GetCharIndex(int index) const;
 
- private:
-  std::vector<uint16_t> m_CharIndex;
-  const CPDF_TextPage* m_pTextPage;
-  CFX_WideString m_strText;
-  CFX_WideString m_findWhat;
-  int m_flags;
-  std::vector<CFX_WideString> m_csFindWhatArray;
-  int m_findNextStart;
-  int m_findPreStart;
-  bool m_bMatchCase;
-  bool m_bMatchWholeWord;
-  int m_resStart;
-  int m_resEnd;
-  std::vector<CFX_FloatRect> m_resArray;
-  bool m_IsFind;
+  UnownedPtr<const CPDF_TextPage> const text_page_;
+  const WideString str_text_;
+  const std::vector<WideString> find_what_array_;
+  std::optional<size_t> find_next_start_;
+  std::optional<size_t> find_pre_start_;
+  int res_start_ = 0;
+  int res_end_ = -1;
+  const Options options_;
 };
 
 #endif  // CORE_FPDFTEXT_CPDF_TEXTPAGEFIND_H_

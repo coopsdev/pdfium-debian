@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,19 @@
 #ifndef XFA_FWL_CFWL_EVENT_H_
 #define XFA_FWL_CFWL_EVENT_H_
 
-#include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fwl/cfwl_messagekey.h"
-#include "xfa/fwl/cfwl_messagemouse.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "v8/include/cppgc/macros.h"
 
-class CFX_Graphics;
+namespace pdfium {
+
 class CFWL_Widget;
 
 class CFWL_Event {
+  CPPGC_STACK_ALLOCATED();  // Allow Raw/Unowned pointers.
+
  public:
   enum class Type {
     CheckStateChanged,
-    CheckWord,
     Click,
     Close,
     EditChanged,
@@ -29,7 +28,7 @@ class CFWL_Event {
     PreDropDown,
     Scroll,
     SelectChanged,
-    TextChanged,
+    TextWillChange,
     TextFull,
     Validate
   };
@@ -39,13 +38,19 @@ class CFWL_Event {
   CFWL_Event(Type type, CFWL_Widget* pSrcTarget, CFWL_Widget* pDstTarget);
   virtual ~CFWL_Event();
 
-  Type GetType() const { return m_type; }
-
-  CFWL_Widget* m_pSrcTarget;
-  CFWL_Widget* m_pDstTarget;
+  Type GetType() const { return type_; }
+  CFWL_Widget* GetSrcTarget() const { return src_target_; }
+  CFWL_Widget* GetDstTarget() const { return dst_target_; }
 
  private:
-  Type m_type;
+  const Type type_;
+  UnownedPtr<CFWL_Widget> const src_target_;
+  UnownedPtr<CFWL_Widget> const dst_target_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_Event;
 
 #endif  // XFA_FWL_CFWL_EVENT_H_

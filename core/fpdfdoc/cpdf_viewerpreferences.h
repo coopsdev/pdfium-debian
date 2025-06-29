@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,13 @@
 #ifndef CORE_FPDFDOC_CPDF_VIEWERPREFERENCES_H_
 #define CORE_FPDFDOC_CPDF_VIEWERPREFERENCES_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include <stdint.h>
+
+#include <optional>
+
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Array;
 class CPDF_Dictionary;
@@ -16,24 +21,22 @@ class CPDF_Document;
 
 class CPDF_ViewerPreferences {
  public:
-  explicit CPDF_ViewerPreferences(CPDF_Document* pDoc);
+  explicit CPDF_ViewerPreferences(const CPDF_Document* pDoc);
   ~CPDF_ViewerPreferences();
 
   bool IsDirectionR2L() const;
   bool PrintScaling() const;
   int32_t NumCopies() const;
-  CPDF_Array* PrintPageRange() const;
-  CFX_ByteString Duplex() const;
+  RetainPtr<const CPDF_Array> PrintPageRange() const;
+  ByteString Duplex() const;
 
-  // Gets the entry for |bsKey|. If the entry exists and it is of type name,
-  // then this method writes the value into |bsVal| and returns true. Otherwise
-  // returns false and |bsVal| is untouched. |bsVal| must not be NULL.
-  bool GenericName(const CFX_ByteString& bsKey, CFX_ByteString* bsVal) const;
+  // Gets the entry for `key`.
+  std::optional<ByteString> GenericName(ByteStringView key) const;
 
  private:
-  CPDF_Dictionary* GetViewerPreferences() const;
+  RetainPtr<const CPDF_Dictionary> GetViewerPreferences() const;
 
-  CPDF_Document* const m_pDoc;
+  UnownedPtr<const CPDF_Document> const doc_;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_VIEWERPREFERENCES_H_

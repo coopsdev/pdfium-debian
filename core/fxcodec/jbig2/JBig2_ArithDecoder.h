@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,32 +7,63 @@
 #ifndef CORE_FXCODEC_JBIG2_JBIG2_ARITHDECODER_H_
 #define CORE_FXCODEC_JBIG2_JBIG2_ARITHDECODER_H_
 
+#include <stdint.h>
+
+#include "core/fxcrt/fx_memory_wrappers.h"
+#include "core/fxcrt/unowned_ptr.h"
+
 class CJBig2_BitStream;
+struct JBig2ArithQe;
 
-struct JBig2ArithCtx {
-  JBig2ArithCtx() : MPS(0), I(0) {}
+class JBig2ArithCtx {
+ public:
+  struct JBig2ArithQe {
+    uint16_t Qe;
+    uint8_t NMPS;
+    uint8_t NLPS;
+    bool bSwitch;
+  };
 
-  unsigned int MPS;
-  unsigned int I;
+  JBig2ArithCtx();
+
+  int DecodeNLPS(const JBig2ArithQe& qe);
+  int DecodeNMPS(const JBig2ArithQe& qe);
+
+  unsigned int MPS() const { return mps_ ? 1 : 0; }
+  unsigned int I() const { return i_; }
+
+ private:
+  bool mps_ = false;
+  unsigned int i_ = 0;
 };
+FX_DATA_PARTITION_EXCEPTION(JBig2ArithCtx);
 
 class CJBig2_ArithDecoder {
  public:
   explicit CJBig2_ArithDecoder(CJBig2_BitStream* pStream);
-
   ~CJBig2_ArithDecoder();
 
-  int DECODE(JBig2ArithCtx* pCX);
+  int Decode(JBig2ArithCtx* pCX);
+
+  bool IsComplete() const { return complete_; }
 
  private:
+  enum class StreamState : uint8_t {
+    kDataAvailable,
+    kDecodingFinished,
+    kLooping,
+  };
+
   void BYTEIN();
   void ReadValueA();
 
-  unsigned char m_B;
-  unsigned int m_C;
-  unsigned int m_A;
-  unsigned int m_CT;
-  CJBig2_BitStream* const m_pStream;
+  bool complete_ = false;
+  StreamState state_ = StreamState::kDataAvailable;
+  uint8_t b_;
+  unsigned int c_;
+  unsigned int a_;
+  unsigned int ct_;
+  UnownedPtr<CJBig2_BitStream> const stream_;
 };
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_ARITHDECODER_H_

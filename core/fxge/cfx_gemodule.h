@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,44 +7,55 @@
 #ifndef CORE_FXGE_CFX_GEMODULE_H_
 #define CORE_FXGE_CFX_GEMODULE_H_
 
+#include <stdint.h>
+
 #include <memory>
 
-#include "core/fxge/cfx_fontmgr.h"
-#include "core/fxge/fx_font.h"
+#include "build/build_config.h"
+#include "core/fxcrt/unowned_ptr_exclusion.h"
 
-class CCodec_ModuleMgr;
+#if BUILDFLAG(IS_APPLE)
+#include "core/fxcrt/span.h"
+#endif
+
 class CFX_FontCache;
 class CFX_FontMgr;
+class SystemFontInfoIface;
 
 class CFX_GEModule {
  public:
-  static CFX_GEModule* Get();
+  class PlatformIface {
+   public:
+    static std::unique_ptr<PlatformIface> Create();
+    virtual ~PlatformIface() = default;
+
+    virtual void Init() = 0;
+    virtual std::unique_ptr<SystemFontInfoIface>
+    CreateDefaultSystemFontInfo() = 0;
+#if BUILDFLAG(IS_APPLE)
+    virtual void* CreatePlatformFont(pdfium::span<const uint8_t> font_span) = 0;
+#endif
+  };
+
+  static void Create(const char** pUserFontPaths);
   static void Destroy();
+  static CFX_GEModule* Get();
 
-  void Init(const char** pUserFontPaths, CCodec_ModuleMgr* pCodecModule);
-  CFX_FontCache* GetFontCache();
-  CFX_FontMgr* GetFontMgr() { return m_pFontMgr.get(); }
-  void SetTextGamma(FX_FLOAT gammaValue);
-  const uint8_t* GetTextGammaTable() const;
-
-  CCodec_ModuleMgr* GetCodecModule() { return m_pCodecModule; }
-  void* GetPlatformData() { return m_pPlatformData; }
-
-  FXFT_Library m_FTLibrary;
+  CFX_FontCache* GetFontCache() const { return font_cache_.get(); }
+  CFX_FontMgr* GetFontMgr() const { return font_mgr_.get(); }
+  PlatformIface* GetPlatform() const { return platform_.get(); }
+  const char** GetUserFontPaths() const { return user_font_paths_; }
 
  private:
-  CFX_GEModule();
+  explicit CFX_GEModule(const char** pUserFontPaths);
   ~CFX_GEModule();
 
-  void InitPlatform();
-  void DestroyPlatform();
+  std::unique_ptr<PlatformIface> const platform_;
+  std::unique_ptr<CFX_FontMgr> const font_mgr_;
+  std::unique_ptr<CFX_FontCache> const font_cache_;
 
-  uint8_t m_GammaValue[256];
-  CFX_FontCache* m_pFontCache;
-  std::unique_ptr<CFX_FontMgr> m_pFontMgr;
-  CCodec_ModuleMgr* m_pCodecModule;
-  void* m_pPlatformData;
-  const char** m_pUserFontPaths;
+  // Exclude because taken from public API.
+  UNOWNED_PTR_EXCLUSION const char** const user_font_paths_;
 };
 
 #endif  // CORE_FXGE_CFX_GEMODULE_H_

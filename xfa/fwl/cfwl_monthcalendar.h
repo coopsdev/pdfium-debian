@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,33 +10,28 @@
 #include <memory>
 #include <vector>
 
-#include "xfa/fgas/localization/fgas_datetime.h"
+#include "core/fxcrt/widestring.h"
 #include "xfa/fwl/cfwl_event.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fwl/cfwl_widgetproperties.h"
 
-#define FWL_ITEMSTATE_MCD_Nomal 0
-#define FWL_ITEMSTATE_MCD_Flag (1L << 0)
-#define FWL_ITEMSTATE_MCD_Selected (1L << 1)
+namespace pdfium {
 
 class CFWL_MessageMouse;
-class CFWL_Widget;
 
-class CFWL_MonthCalendar : public CFWL_Widget {
+class CFWL_MonthCalendar final : public CFWL_Widget {
  public:
-  CFWL_MonthCalendar(const CFWL_App* app,
-                     std::unique_ptr<CFWL_WidgetProperties> properties,
-                     CFWL_Widget* pOuter);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_MonthCalendar() override;
 
-  // FWL_WidgetImp
+  // CFWL_Widget:
   FWL_Type GetClassID() const override;
   CFX_RectF GetAutosizedWidgetRect() override;
   void Update() override;
-  void DrawWidget(CFX_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CFGAS_GEGraphics* pGraphics,
+                  const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
-  void OnDrawWidget(CFX_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+  void OnDrawWidget(CFGAS_GEGraphics* pGraphics,
+                    const CFX_Matrix& matrix) override;
 
   void SetSelect(int32_t iYear, int32_t iMonth, int32_t iDay);
 
@@ -48,25 +43,31 @@ class CFWL_MonthCalendar : public CFWL_Widget {
         : iYear(year), iMonth(month), iDay(day) {}
 
     bool operator<(const DATE& right) {
-      if (iYear < right.iYear)
+      if (iYear < right.iYear) {
         return true;
+      }
       if (iYear == right.iYear) {
-        if (iMonth < right.iMonth)
+        if (iMonth < right.iMonth) {
           return true;
-        if (iMonth == right.iMonth)
+        }
+        if (iMonth == right.iMonth) {
           return iDay < right.iDay;
+        }
       }
       return false;
     }
 
     bool operator>(const DATE& right) {
-      if (iYear > right.iYear)
+      if (iYear > right.iYear) {
         return true;
+      }
       if (iYear == right.iYear) {
-        if (iMonth > right.iMonth)
+        if (iMonth > right.iMonth) {
           return true;
-        if (iMonth == right.iMonth)
+        }
+        if (iMonth == right.iMonth) {
           return iDay > right.iDay;
+        }
       }
       return false;
     }
@@ -75,63 +76,47 @@ class CFWL_MonthCalendar : public CFWL_Widget {
     int32_t iMonth;
     int32_t iDay;
   };
+
   struct DATEINFO {
     DATEINFO(int32_t day,
              int32_t dayofweek,
-             uint32_t dwSt,
-             CFX_RectF rc,
-             CFX_WideString& wsday);
+             bool bFlag,
+             bool bSelect,
+             const WideString& wsday);
     ~DATEINFO();
 
-    int32_t iDay;
-    int32_t iDayOfWeek;
-    uint32_t dwStates;
+    Mask<CFWL_PartState> AsPartStateMask() const;
+
+    const int32_t iDay;
+    const int32_t iDayOfWeek;
+    bool bFlagged;
+    bool bSelected;
     CFX_RectF rect;
-    CFX_WideString wsDay;
+    const WideString wsDay;
   };
 
-  void DrawBackground(CFX_Graphics* pGraphics,
-                      IFWL_ThemeProvider* pTheme,
-                      const CFX_Matrix* pMatrix);
-  void DrawHeadBK(CFX_Graphics* pGraphics,
-                  IFWL_ThemeProvider* pTheme,
-                  const CFX_Matrix* pMatrix);
-  void DrawLButton(CFX_Graphics* pGraphics,
-                   IFWL_ThemeProvider* pTheme,
-                   const CFX_Matrix* pMatrix);
-  void DrawRButton(CFX_Graphics* pGraphics,
-                   IFWL_ThemeProvider* pTheme,
-                   const CFX_Matrix* pMatrix);
-  void DrawCaption(CFX_Graphics* pGraphics,
-                   IFWL_ThemeProvider* pTheme,
-                   const CFX_Matrix* pMatrix);
-  void DrawSeperator(CFX_Graphics* pGraphics,
-                     IFWL_ThemeProvider* pTheme,
-                     const CFX_Matrix* pMatrix);
-  void DrawDatesInBK(CFX_Graphics* pGraphics,
-                     IFWL_ThemeProvider* pTheme,
-                     const CFX_Matrix* pMatrix);
-  void DrawWeek(CFX_Graphics* pGraphics,
-                IFWL_ThemeProvider* pTheme,
-                const CFX_Matrix* pMatrix);
-  void DrawToday(CFX_Graphics* pGraphics,
-                 IFWL_ThemeProvider* pTheme,
-                 const CFX_Matrix* pMatrix);
-  void DrawDatesIn(CFX_Graphics* pGraphics,
-                   IFWL_ThemeProvider* pTheme,
-                   const CFX_Matrix* pMatrix);
-  void DrawDatesOut(CFX_Graphics* pGraphics,
-                    IFWL_ThemeProvider* pTheme,
-                    const CFX_Matrix* pMatrix);
-  void DrawDatesInCircle(CFX_Graphics* pGraphics,
-                         IFWL_ThemeProvider* pTheme,
-                         const CFX_Matrix* pMatrix);
+  CFWL_MonthCalendar(CFWL_App* app,
+                     const Properties& properties,
+                     CFWL_Widget* pOuter);
+
+  void DrawBackground(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawHeadBK(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawLButton(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawRButton(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawCaption(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawSeparator(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawDatesInBK(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawWeek(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawToday(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawDatesIn(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawDatesOut(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
+  void DrawDatesInCircle(CFGAS_GEGraphics* pGraphics,
+                         const CFX_Matrix& mtMatrix);
   CFX_SizeF CalcSize();
   void Layout();
   void CalcHeadSize();
   void CalcTodaySize();
   void CalDateItem();
-  void GetCapValue();
   void InitDate();
   void ClearDateItem();
   void ResetDateItem();
@@ -141,48 +126,48 @@ class CFWL_MonthCalendar : public CFWL_Widget {
   void RemoveSelDay();
   void AddSelDay(int32_t iDay);
   void JumpToToday();
-  CFX_WideString GetHeadText(int32_t iYear, int32_t iMonth);
-  CFX_WideString GetTodayText(int32_t iYear, int32_t iMonth, int32_t iDay);
+  WideString GetHeadText(int32_t iYear, int32_t iMonth);
+  WideString GetTodayText(int32_t iYear, int32_t iMonth, int32_t iDay);
   int32_t GetDayAtPoint(const CFX_PointF& point) const;
   CFX_RectF GetDayRect(int32_t iDay);
   void OnLButtonDown(CFWL_MessageMouse* pMsg);
   void OnLButtonUp(CFWL_MessageMouse* pMsg);
-  void DisForm_OnLButtonUp(CFWL_MessageMouse* pMsg);
   void OnMouseMove(CFWL_MessageMouse* pMsg);
   void OnMouseLeave(CFWL_MessageMouse* pMsg);
 
-  bool m_bInitialized;
-  CFX_RectF m_rtHead;
-  CFX_RectF m_rtWeek;
-  CFX_RectF m_rtLBtn;
-  CFX_RectF m_rtRBtn;
-  CFX_RectF m_rtDates;
-  CFX_RectF m_rtHSep;
-  CFX_RectF m_rtHeadText;
-  CFX_RectF m_rtToday;
-  CFX_RectF m_rtTodayFlag;
-  CFX_RectF m_rtWeekNum;
-  CFX_RectF m_rtWeekNumSep;
-  CFX_WideString m_wsHead;
-  CFX_WideString m_wsToday;
-  std::unique_ptr<CFX_DateTime> m_pDateTime;
-  std::vector<std::unique_ptr<DATEINFO>> m_arrDates;
-  int32_t m_iCurYear;
-  int32_t m_iCurMonth;
-  int32_t m_iYear;
-  int32_t m_iMonth;
-  int32_t m_iDay;
-  int32_t m_iHovered;
-  int32_t m_iLBtnPartStates;
-  int32_t m_iRBtnPartStates;
-  DATE m_dtMin;
-  DATE m_dtMax;
-  CFX_SizeF m_szHead;
-  CFX_SizeF m_szCell;
-  CFX_SizeF m_szToday;
-  std::vector<int32_t> m_arrSelDays;
-  CFX_RectF m_rtClient;
-  bool m_bFlag;
+  bool initialized_ = false;
+  CFX_RectF head_rect_;
+  CFX_RectF week_rect_;
+  CFX_RectF lbtn_rect_;
+  CFX_RectF rbtn_rect_;
+  CFX_RectF dates_rect_;
+  CFX_RectF hsep_rect_;
+  CFX_RectF head_text_rect_;
+  CFX_RectF today_rect_;
+  CFX_RectF today_flag_rect_;
+  WideString head_;
+  WideString today_;
+  std::vector<std::unique_ptr<DATEINFO>> date_array_;
+  int32_t cur_year_ = 2011;
+  int32_t cur_month_ = 1;
+  int32_t year_ = 2011;
+  int32_t month_ = 1;
+  int32_t day_ = 1;
+  int32_t hovered_ = -1;
+  Mask<CFWL_PartState> lbtn_part_states_ = CFWL_PartState::kNormal;
+  Mask<CFWL_PartState> rbtn_part_states_ = CFWL_PartState::kNormal;
+  DATE dt_min_;
+  DATE dt_max_;
+  CFX_SizeF head_size_;
+  CFX_SizeF cell_size_;
+  CFX_SizeF today_size_;
+  std::vector<int32_t> sel_day_array_;
+  CFX_RectF client_rect_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MonthCalendar;
 
 #endif  // XFA_FWL_CFWL_MONTHCALENDAR_H_

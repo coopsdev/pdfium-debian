@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,43 +6,83 @@
 
 #include <iomanip>
 #include <ios>
+#include <ostream>
 
-namespace {
+#include "core/fxcrt/cfx_datetime.h"
+#include "core/fxcrt/check_op.h"
+#include "core/fxcrt/compiler_specific.h"
+#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/span.h"
+#include "fpdfsdk/cpdfsdk_helpers.h"
 
-template <typename T>
-std::ostream& output_string(std::ostream& out, const T& str) {
-  out << std::hex << std::setfill('0') << '"';
-  // This function is used for FX strings whose length is defined as int.
-  for (int i = 0; i < str.GetLength(); ++i) {
-    unsigned int c = str.GetAt(i);
-    if (c >= 0x20 && c < 0x7F) {
-      out << static_cast<char>(c);
-    } else if (sizeof(typename T::CharType) == 1) {
-      out << "\\x" << std::setw(2) << c << std::setw(0);
-    } else if (c < 0x10000) {
-      out << "\\u" << std::setw(4) << c << std::setw(0);
-    } else {
-      out << "<invalid>";
+std::ostream& operator<<(std::ostream& os, const CFX_DateTime& dt) {
+  os << dt.GetYear() << "-" << std::to_string(dt.GetMonth()) << "-"
+     << std::to_string(dt.GetDay()) << " " << std::to_string(dt.GetHour())
+     << ":" << std::to_string(dt.GetMinute()) << ":"
+     << std::to_string(dt.GetSecond()) << "."
+     << std::to_string(dt.GetMillisecond());
+  return os;
+}
+
+std::vector<std::string> StringSplit(const std::string& str, char delimiter) {
+  std::vector<std::string> result;
+  size_t pos = 0;
+  while (true) {
+    size_t found = str.find(delimiter, pos);
+    if (found == std::string::npos) {
+      break;
     }
+
+    result.push_back(str.substr(pos, found - pos));
+    pos = found + 1;
   }
-  out << '"' << std::dec << std::setfill(' ');
-  return out;
+  result.push_back(str.substr(pos));
+  return result;
 }
 
-}  // namespace
-
-std::ostream& operator<<(std::ostream& out, const CFX_ByteStringC& str) {
-  return output_string(out, str);
+std::string GetPlatformString(FPDF_WIDESTRING wstr) {
+  WideString wide_string = WideStringFromFPDFWideString(wstr);
+  return std::string(wide_string.ToUTF8().c_str());
 }
 
-std::ostream& operator<<(std::ostream& out, const CFX_ByteString& str) {
-  return output_string(out, str);
+std::wstring GetPlatformWString(FPDF_WIDESTRING wstr) {
+  if (!wstr) {
+    return std::wstring();
+  }
+
+  size_t characters = 0;
+  while (wstr[characters]) {
+    ++characters;
+  }
+
+  std::wstring platform_string;
+  platform_string.reserve(characters);
+  for (size_t i = 0; i < characters; ++i) {
+    const unsigned char* ptr = reinterpret_cast<const unsigned char*>(&wstr[i]);
+    platform_string.push_back(ptr[0] + 256 * ptr[1]);
+  }
+  return platform_string;
 }
 
-std::ostream& operator<<(std::ostream& out, const CFX_WideStringC& str) {
-  return output_string(out, str);
+ScopedFPDFWideString GetFPDFWideString(const std::wstring& wstr) {
+  size_t length = sizeof(uint16_t) * (wstr.size() + 1);
+  ScopedFPDFWideString result(static_cast<FPDF_WCHAR*>(malloc(length)));
+
+  // SAFETY: length was argument to malloc above.
+  pdfium::span<uint8_t> result_span = UNSAFE_BUFFERS(
+      pdfium::span(reinterpret_cast<uint8_t*>(result.get()), length));
+
+  size_t i = 0;
+  for (wchar_t w : wstr) {
+    result_span[i++] = w & 0xff;
+    result_span[i++] = (w >> 8) & 0xff;
+  }
+  result_span[i++] = 0;
+  result_span[i] = 0;
+  return result;
 }
 
-std::ostream& operator<<(std::ostream& out, const CFX_WideString& str) {
-  return output_string(out, str);
+std::vector<FPDF_WCHAR> GetFPDFWideStringBuffer(size_t length_bytes) {
+  DCHECK_EQ(length_bytes % sizeof(FPDF_WCHAR), 0u);
+  return std::vector<FPDF_WCHAR>(length_bytes / sizeof(FPDF_WCHAR));
 }

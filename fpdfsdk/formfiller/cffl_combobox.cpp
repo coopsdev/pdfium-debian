@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,68 +6,54 @@
 
 #include "fpdfsdk/formfiller/cffl_combobox.h"
 
-#include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_widget.h"
-#include "fpdfsdk/formfiller/cba_fontmap.h"
-#include "fpdfsdk/formfiller/cffl_formfiller.h"
-#include "fpdfsdk/formfiller/cffl_interactiveformfiller.h"
-#include "fpdfsdk/fsdk_common.h"
-#include "fpdfsdk/pdfwindow/PWL_ComboBox.h"
+#include <utility>
 
-CFFL_ComboBox::CFFL_ComboBox(CPDFSDK_FormFillEnvironment* pApp,
-                             CPDFSDK_Annot* pAnnot)
-    : CFFL_FormFiller(pApp, pAnnot), m_pFontMap(nullptr) {
-  m_State.nIndex = 0;
-  m_State.nStart = 0;
-  m_State.nEnd = 0;
-}
+#include "constants/form_flags.h"
+#include "core/fpdfdoc/cpdf_bafontmap.h"
+#include "fpdfsdk/cpdfsdk_widget.h"
+#include "fpdfsdk/formfiller/cffl_interactiveformfiller.h"
+#include "fpdfsdk/formfiller/cffl_perwindowdata.h"
+#include "fpdfsdk/pwl/cpwl_combo_box.h"
+#include "fpdfsdk/pwl/cpwl_edit.h"
+
+CFFL_ComboBox::CFFL_ComboBox(CFFL_InteractiveFormFiller* pFormFiller,
+                             CPDFSDK_Widget* pWidget)
+    : CFFL_TextObject(pFormFiller, pWidget) {}
 
 CFFL_ComboBox::~CFFL_ComboBox() {
-  for (const auto& it : m_Maps)
-    it.second->InvalidateFocusHandler(this);
-
   // See comment in cffl_formfiller.h.
   // The font map should be stored somewhere more appropriate so it will live
   // until the PWL_Edit is done with it. pdfium:566
   DestroyWindows();
-  delete m_pFontMap;
 }
 
-PWL_CREATEPARAM CFFL_ComboBox::GetCreateParam() {
-  PWL_CREATEPARAM cp = CFFL_FormFiller::GetCreateParam();
-
-  int nFlags = m_pWidget->GetFieldFlags();
-  if (nFlags & FIELDFLAG_EDIT) {
+CPWL_Wnd::CreateParams CFFL_ComboBox::GetCreateParam() {
+  CPWL_Wnd::CreateParams cp = CFFL_TextObject::GetCreateParam();
+  if (widget_->GetFieldFlags() & pdfium::form_flags::kChoiceEdit) {
     cp.dwFlags |= PCBS_ALLOWCUSTOMTEXT;
   }
 
-  if (!m_pFontMap)
-    m_pFontMap = new CBA_FontMap(m_pWidget, GetSystemHandler());
-  cp.pFontMap = m_pFontMap;
-  cp.pFocusHandler = this;
-
+  cp.font_map = GetOrCreateFontMap();
   return cp;
 }
 
-CPWL_Wnd* CFFL_ComboBox::NewPDFWindow(const PWL_CREATEPARAM& cp,
-                                      CPDFSDK_PageView* pPageView) {
-  CPWL_ComboBox* pWnd = new CPWL_ComboBox();
-  pWnd->AttachFFLData(this);
-  pWnd->Create(cp);
+std::unique_ptr<CPWL_Wnd> CFFL_ComboBox::NewPWLWindow(
+    const CPWL_Wnd::CreateParams& cp,
+    std::unique_ptr<IPWL_FillerNotify::PerWindowData> pAttachedData) {
+  static_cast<CFFL_PerWindowData*>(pAttachedData.get())->SetFormField(this);
+  auto pWnd = std::make_unique<CPWL_ComboBox>(cp, std::move(pAttachedData));
+  pWnd->Realize();
 
-  CFFL_InteractiveFormFiller* pFormFiller =
-      m_pFormFillEnv->GetInteractiveFormFiller();
-  pWnd->SetFillerNotify(pFormFiller);
+  int32_t nCurSel = widget_->GetSelectedIndex(0);
+  WideString swText;
+  if (nCurSel < 0) {
+    swText = widget_->GetValue();
+  } else {
+    swText = widget_->GetOptionLabel(nCurSel);
+  }
 
-  int32_t nCurSel = m_pWidget->GetSelectedIndex(0);
-  CFX_WideString swText;
-  if (nCurSel < 0)
-    swText = m_pWidget->GetValue();
-  else
-    swText = m_pWidget->GetOptionLabel(nCurSel);
-
-  for (int32_t i = 0, sz = m_pWidget->CountOptions(); i < sz; i++) {
-    pWnd->AddString(m_pWidget->GetOptionLabel(i));
+  for (int32_t i = 0, sz = widget_->CountOptions(); i < sz; i++) {
+    pWnd->AddString(widget_->GetOptionLabel(i));
   }
 
   pWnd->SetSelect(nCurSel);
@@ -75,106 +61,108 @@ CPWL_Wnd* CFFL_ComboBox::NewPDFWindow(const PWL_CREATEPARAM& cp,
   return pWnd;
 }
 
-bool CFFL_ComboBox::OnChar(CPDFSDK_Annot* pAnnot,
+bool CFFL_ComboBox::OnChar(CPDFSDK_Widget* pWidget,
                            uint32_t nChar,
-                           uint32_t nFlags) {
-  return CFFL_FormFiller::OnChar(pAnnot, nChar, nFlags);
+                           Mask<FWL_EVENTFLAG> nFlags) {
+  return CFFL_TextObject::OnChar(pWidget, nChar, nFlags);
 }
 
-bool CFFL_ComboBox::IsDataChanged(CPDFSDK_PageView* pPageView) {
-  CPWL_ComboBox* pWnd = (CPWL_ComboBox*)GetPDFWindow(pPageView, false);
-  if (!pWnd)
+bool CFFL_ComboBox::IsDataChanged(const CPDFSDK_PageView* pPageView) {
+  auto* pWnd = GetPWLComboBox(pPageView);
+  if (!pWnd) {
     return false;
-
-  int32_t nCurSel = pWnd->GetSelect();
-  if (!(m_pWidget->GetFieldFlags() & FIELDFLAG_EDIT))
-    return nCurSel != m_pWidget->GetSelectedIndex(0);
-
-  if (nCurSel >= 0)
-    return nCurSel != m_pWidget->GetSelectedIndex(0);
-
-  return pWnd->GetText() != m_pWidget->GetValue();
-}
-
-void CFFL_ComboBox::SaveData(CPDFSDK_PageView* pPageView) {
-  CPWL_ComboBox* pWnd =
-      static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, false));
-  if (!pWnd)
-    return;
-
-  CFX_WideString swText = pWnd->GetText();
-  int32_t nCurSel = pWnd->GetSelect();
-
-  bool bSetValue = false;
-
-  if (m_pWidget->GetFieldFlags() & FIELDFLAG_EDIT)
-    bSetValue = (nCurSel < 0) || (swText != m_pWidget->GetOptionLabel(nCurSel));
-
-  if (bSetValue) {
-    m_pWidget->SetValue(swText, false);
-  } else {
-    m_pWidget->GetSelectedIndex(0);
-    m_pWidget->SetOptionSelection(nCurSel, true, false);
   }
 
-  m_pWidget->ResetFieldAppearance(true);
-  m_pWidget->UpdateField();
-  SetChangeMark();
+  int32_t nCurSel = pWnd->GetSelect();
+  if (!(widget_->GetFieldFlags() & pdfium::form_flags::kChoiceEdit)) {
+    return nCurSel != widget_->GetSelectedIndex(0);
+  }
 
-  m_pWidget->GetPDFPage();
+  if (nCurSel >= 0) {
+    return nCurSel != widget_->GetSelectedIndex(0);
+  }
+
+  return pWnd->GetText() != widget_->GetValue();
 }
 
-void CFFL_ComboBox::GetActionData(CPDFSDK_PageView* pPageView,
+void CFFL_ComboBox::SaveData(const CPDFSDK_PageView* pPageView) {
+  ObservedPtr<CFFL_ComboBox> observed_this(this);
+  CPWL_ComboBox* pWnd = observed_this->GetPWLComboBox(pPageView);
+  if (!pWnd) {
+    return;
+  }
+  WideString swText = pWnd->GetText();
+  int32_t nCurSel = pWnd->GetSelect();
+  bool bSetValue = false;
+  ObservedPtr<CPDFSDK_Widget> observed_widget(observed_this->widget_);
+  if (observed_widget->GetFieldFlags() & pdfium::form_flags::kChoiceEdit) {
+    bSetValue =
+        (nCurSel < 0) || (swText != observed_widget->GetOptionLabel(nCurSel));
+  }
+  if (bSetValue) {
+    observed_widget->SetValue(swText);
+  } else {
+    observed_widget->GetSelectedIndex(0);
+    observed_widget->SetOptionSelection(nCurSel);
+  }
+  if (!observed_widget) {
+    return;
+  }
+  observed_widget->ResetFieldAppearance();
+  if (!observed_widget) {
+    return;
+  }
+  observed_widget->UpdateField();
+  if (!observed_widget || !observed_this) {
+    return;
+  }
+  observed_this->SetChangeMark();
+}
+
+void CFFL_ComboBox::GetActionData(const CPDFSDK_PageView* pPageView,
                                   CPDF_AAction::AActionType type,
-                                  PDFSDK_FieldAction& fa) {
+                                  CFFL_FieldAction& fa) {
   switch (type) {
-    case CPDF_AAction::KeyStroke:
-      if (CPWL_ComboBox* pComboBox =
-              static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, false))) {
+    case CPDF_AAction::kKeyStroke:
+      if (CPWL_ComboBox* pComboBox = GetPWLComboBox(pPageView)) {
         if (CPWL_Edit* pEdit = pComboBox->GetEdit()) {
           fa.bFieldFull = pEdit->IsTextFull();
-          int nSelStart = 0;
-          int nSelEnd = 0;
-          pEdit->GetSel(nSelStart, nSelEnd);
-          fa.nSelEnd = nSelEnd;
-          fa.nSelStart = nSelStart;
+          std::tie(fa.nSelStart, fa.nSelEnd) = pEdit->GetSelection();
           fa.sValue = pEdit->GetText();
           fa.sChangeEx = GetSelectExportText();
 
           if (fa.bFieldFull) {
-            fa.sChange = L"";
-            fa.sChangeEx = L"";
+            fa.sChange.clear();
+            fa.sChangeEx.clear();
           }
         }
       }
       break;
-    case CPDF_AAction::Validate:
-      if (CPWL_ComboBox* pComboBox =
-              static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, false))) {
+    case CPDF_AAction::kValidate:
+      if (CPWL_ComboBox* pComboBox = GetPWLComboBox(pPageView)) {
         if (CPWL_Edit* pEdit = pComboBox->GetEdit()) {
           fa.sValue = pEdit->GetText();
         }
       }
       break;
-    case CPDF_AAction::LoseFocus:
-    case CPDF_AAction::GetFocus:
-      fa.sValue = m_pWidget->GetValue();
+    case CPDF_AAction::kLoseFocus:
+    case CPDF_AAction::kGetFocus:
+      fa.sValue = widget_->GetValue();
       break;
     default:
       break;
   }
 }
 
-void CFFL_ComboBox::SetActionData(CPDFSDK_PageView* pPageView,
+void CFFL_ComboBox::SetActionData(const CPDFSDK_PageView* pPageView,
                                   CPDF_AAction::AActionType type,
-                                  const PDFSDK_FieldAction& fa) {
+                                  const CFFL_FieldAction& fa) {
   switch (type) {
-    case CPDF_AAction::KeyStroke:
-      if (CPWL_ComboBox* pComboBox =
-              static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, false))) {
+    case CPDF_AAction::kKeyStroke:
+      if (CPWL_ComboBox* pComboBox = GetPWLComboBox(pPageView)) {
         if (CPWL_Edit* pEdit = pComboBox->GetEdit()) {
-          pEdit->SetSel(fa.nSelStart, fa.nSelEnd);
-          pEdit->ReplaceSel(fa.sChange);
+          pEdit->SetSelection(fa.nSelStart, fa.nSelEnd);
+          pEdit->ReplaceSelection(fa.sChange);
         }
       }
       break;
@@ -183,117 +171,105 @@ void CFFL_ComboBox::SetActionData(CPDFSDK_PageView* pPageView,
   }
 }
 
-bool CFFL_ComboBox::IsActionDataChanged(CPDF_AAction::AActionType type,
-                                        const PDFSDK_FieldAction& faOld,
-                                        const PDFSDK_FieldAction& faNew) {
-  switch (type) {
-    case CPDF_AAction::KeyStroke:
-      return (!faOld.bFieldFull && faOld.nSelEnd != faNew.nSelEnd) ||
-             faOld.nSelStart != faNew.nSelStart ||
-             faOld.sChange != faNew.sChange;
-    default:
-      break;
+void CFFL_ComboBox::SavePWLWindowState(const CPDFSDK_PageView* pPageView) {
+  CPWL_ComboBox* pComboBox = GetPWLComboBox(pPageView);
+  if (!pComboBox) {
+    return;
   }
 
-  return false;
+  state_.nIndex = pComboBox->GetSelect();
+
+  CPWL_Edit* pEdit = pComboBox->GetEdit();
+  if (!pEdit) {
+    return;
+  }
+
+  std::tie(state_.nStart, state_.nEnd) = pEdit->GetSelection();
+  state_.sValue = pEdit->GetText();
 }
 
-void CFFL_ComboBox::SaveState(CPDFSDK_PageView* pPageView) {
-  ASSERT(pPageView);
-
-  if (CPWL_ComboBox* pComboBox =
-          static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, false))) {
-    m_State.nIndex = pComboBox->GetSelect();
-
-    if (CPWL_Edit* pEdit = pComboBox->GetEdit()) {
-      pEdit->GetSel(m_State.nStart, m_State.nEnd);
-      m_State.sValue = pEdit->GetText();
-    }
+void CFFL_ComboBox::RecreatePWLWindowFromSavedState(
+    const CPDFSDK_PageView* pPageView) {
+  CPWL_ComboBox* pComboBox = CreateOrUpdatePWLComboBox(pPageView);
+  if (!pComboBox) {
+    return;
   }
+
+  if (state_.nIndex >= 0) {
+    pComboBox->SetSelect(state_.nIndex);
+    return;
+  }
+
+  CPWL_Edit* pEdit = pComboBox->GetEdit();
+  if (!pEdit) {
+    return;
+  }
+
+  pEdit->SetText(state_.sValue);
+  pEdit->SetSelection(state_.nStart, state_.nEnd);
 }
 
-void CFFL_ComboBox::RestoreState(CPDFSDK_PageView* pPageView) {
-  ASSERT(pPageView);
-
-  if (CPWL_ComboBox* pComboBox =
-          static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, true))) {
-    if (m_State.nIndex >= 0) {
-      pComboBox->SetSelect(m_State.nIndex);
-    } else {
-      if (CPWL_Edit* pEdit = pComboBox->GetEdit()) {
-        pEdit->SetText(m_State.sValue);
-        pEdit->SetSel(m_State.nStart, m_State.nEnd);
-      }
-    }
+bool CFFL_ComboBox::SetIndexSelected(int index, bool selected) {
+  if (!IsValid() || !selected) {
+    return false;
   }
+
+  if (index < 0 || index >= widget_->CountOptions()) {
+    return false;
+  }
+
+  CPWL_ComboBox* pWnd = GetPWLComboBox(GetCurPageView());
+  if (!pWnd) {
+    return false;
+  }
+
+  pWnd->SetSelect(index);
+  return true;
 }
 
-CPWL_Wnd* CFFL_ComboBox::ResetPDFWindow(CPDFSDK_PageView* pPageView,
-                                        bool bRestoreValue) {
-  if (bRestoreValue)
-    SaveState(pPageView);
-
-  DestroyPDFWindow(pPageView);
-
-  CPWL_Wnd* pRet = nullptr;
-
-  if (bRestoreValue) {
-    RestoreState(pPageView);
-    pRet = GetPDFWindow(pPageView, false);
-  } else {
-    pRet = GetPDFWindow(pPageView, true);
+bool CFFL_ComboBox::IsIndexSelected(int index) {
+  if (!IsValid()) {
+    return false;
   }
 
-  m_pWidget->UpdateField();
+  if (index < 0 || index >= widget_->CountOptions()) {
+    return false;
+  }
 
-  return pRet;
+  CPWL_ComboBox* pWnd = GetPWLComboBox(GetCurPageView());
+  return pWnd && index == pWnd->GetSelect();
 }
 
 #ifdef PDF_ENABLE_XFA
-bool CFFL_ComboBox::IsFieldFull(CPDFSDK_PageView* pPageView) {
-  if (CPWL_ComboBox* pComboBox =
-          static_cast<CPWL_ComboBox*>(GetPDFWindow(pPageView, false))) {
-    if (CPWL_Edit* pEdit = pComboBox->GetEdit())
-      return pEdit->IsTextFull();
+bool CFFL_ComboBox::IsFieldFull(const CPDFSDK_PageView* pPageView) {
+  CPWL_ComboBox* pComboBox = GetPWLComboBox(pPageView);
+  if (!pComboBox) {
+    return false;
   }
-  return false;
+
+  CPWL_Edit* pEdit = pComboBox->GetEdit();
+  return pEdit && pEdit->IsTextFull();
 }
 #endif  // PDF_ENABLE_XFA
 
-void CFFL_ComboBox::OnSetFocus(CPWL_Wnd* pWnd) {
-  ASSERT(m_pFormFillEnv);
-
-  if (pWnd->GetClassName() == PWL_CLASSNAME_EDIT) {
-    CPWL_Edit* pEdit = (CPWL_Edit*)pWnd;
-    pEdit->SetCharSet(FXFONT_GB2312_CHARSET);
-    pEdit->SetCodePage(936);
-
-    pEdit->SetReadyToInput();
-    CFX_WideString wsText = pEdit->GetText();
-    int nCharacters = wsText.GetLength();
-    CFX_ByteString bsUTFText = wsText.UTF16LE_Encode();
-    unsigned short* pBuffer = (unsigned short*)bsUTFText.c_str();
-    m_pFormFillEnv->OnSetFieldInputFocus(pBuffer, nCharacters, true);
-  }
+void CFFL_ComboBox::OnSetFocusForEdit(CPWL_Edit* pEdit) {
+  pEdit->SetCharSet(FX_Charset::kChineseSimplified);
+  pEdit->SetReadyToInput();
+  form_filler_->OnSetFieldInputFocus(pEdit->GetText());
 }
 
-CFX_WideString CFFL_ComboBox::GetSelectExportText() {
-  CFX_WideString swRet;
+WideString CFFL_ComboBox::GetSelectExportText() {
+  CPWL_ComboBox* pComboBox = GetPWLComboBox(GetCurPageView());
+  int nExport = pComboBox ? pComboBox->GetSelect() : -1;
+  return widget_->GetSelectExportText(nExport);
+}
 
-  int nExport = -1;
-  CPDFSDK_PageView* pPageView = GetCurPageView(true);
-  if (CPWL_ComboBox* pComboBox =
-          (CPWL_ComboBox*)GetPDFWindow(pPageView, false)) {
-    nExport = pComboBox->GetSelect();
-  }
+CPWL_ComboBox* CFFL_ComboBox::GetPWLComboBox(
+    const CPDFSDK_PageView* pPageView) const {
+  return static_cast<CPWL_ComboBox*>(GetPWLWindow(pPageView));
+}
 
-  if (nExport >= 0) {
-    if (CPDF_FormField* pFormField = m_pWidget->GetFormField()) {
-      swRet = pFormField->GetOptionValue(nExport);
-      if (swRet.IsEmpty())
-        swRet = pFormField->GetOptionLabel(nExport);
-    }
-  }
-
-  return swRet;
+CPWL_ComboBox* CFFL_ComboBox::CreateOrUpdatePWLComboBox(
+    const CPDFSDK_PageView* pPageView) {
+  return static_cast<CPWL_ComboBox*>(CreateOrUpdatePWLWindow(pPageView));
 }

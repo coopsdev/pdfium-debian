@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,28 +7,27 @@
 #ifndef XFA_FWL_CFWL_COMBOLIST_H_
 #define XFA_FWL_CFWL_COMBOLIST_H_
 
-#include <memory>
-
 #include "xfa/fwl/cfwl_listbox.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fwl/cfwl_widgetproperties.h"
 
-class CFWL_ComboList : public CFWL_ListBox {
+namespace pdfium {
+
+class CFWL_ComboList final : public CFWL_ListBox {
  public:
-  CFWL_ComboList(const CFWL_App* app,
-                 std::unique_ptr<CFWL_WidgetProperties> properties,
-                 CFWL_Widget* pOuter);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CFWL_ComboList() override;
 
   // CFWL_ListBox.
   void OnProcessMessage(CFWL_Message* pMessage) override;
 
-  int32_t MatchItem(const CFX_WideString& wsMatch);
-
+  int32_t MatchItem(WideStringView wsMatch);
   void ChangeSelected(int32_t iSel);
 
-  void SetNotifyOwner(bool notify) { m_bNotifyOwner = notify; }
-
  private:
+  CFWL_ComboList(CFWL_App* app,
+                 const Properties& properties,
+                 CFWL_Widget* pOuter);
+
   CFX_PointF ClientToOuter(const CFX_PointF& point);
   void OnDropListFocusChanged(CFWL_Message* pMsg, bool bSet);
   void OnDropListMouseMove(CFWL_MessageMouse* pMsg);
@@ -37,7 +36,12 @@ class CFWL_ComboList : public CFWL_ListBox {
   bool OnDropListKey(CFWL_MessageKey* pKey);
   void OnDropListKeyDown(CFWL_MessageKey* pKey);
 
-  bool m_bNotifyOwner;
+  bool notify_owner_ = true;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_ComboList;
 
 #endif  // XFA_FWL_CFWL_COMBOLIST_H_

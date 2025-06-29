@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,98 +6,160 @@
 
 #include "xfa/fxfa/parser/cxfa_fill.h"
 
-#include "xfa/fxfa/parser/xfa_object.h"
+#include "fxjs/xfa/cjx_node.h"
+#include "xfa/fgas/graphics/cfgas_gegraphics.h"
+#include "xfa/fxfa/parser/cxfa_color.h"
+#include "xfa/fxfa/parser/cxfa_document.h"
+#include "xfa/fxfa/parser/cxfa_linear.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
+#include "xfa/fxfa/parser/cxfa_pattern.h"
+#include "xfa/fxfa/parser/cxfa_radial.h"
+#include "xfa/fxfa/parser/cxfa_stipple.h"
 
-CXFA_Fill::CXFA_Fill(CXFA_Node* pNode) : CXFA_Data(pNode) {}
+namespace {
 
-CXFA_Fill::~CXFA_Fill() {}
+const CXFA_Node::PropertyData kFillPropertyData[] = {
+    {XFA_Element::Pattern, 1, {XFA_PropertyFlag::kOneOf}},
+    {XFA_Element::Solid,
+     1,
+     {XFA_PropertyFlag::kOneOf, XFA_PropertyFlag::kDefaultOneOf}},
+    {XFA_Element::Stipple, 1, {XFA_PropertyFlag::kOneOf}},
+    {XFA_Element::Color, 1, {}},
+    {XFA_Element::Linear, 1, {XFA_PropertyFlag::kOneOf}},
+    {XFA_Element::Extras, 1, {}},
+    {XFA_Element::Radial, 1, {XFA_PropertyFlag::kOneOf}},
+};
 
-int32_t CXFA_Fill::GetPresence() {
-  return m_pNode->GetEnum(XFA_ATTRIBUTE_Presence);
+const CXFA_Node::AttributeData kFillAttributeData[] = {
+    {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Presence, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Visible},
+    {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
+};
+
+}  // namespace
+
+CXFA_Fill::CXFA_Fill(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(doc,
+                packet,
+                {XFA_XDPPACKET::kTemplate, XFA_XDPPACKET::kForm},
+                XFA_ObjectType::Node,
+                XFA_Element::Fill,
+                kFillPropertyData,
+                kFillAttributeData,
+                cppgc::MakeGarbageCollected<CJX_Node>(
+                    doc->GetHeap()->GetAllocationHandle(),
+                    this)) {}
+
+CXFA_Fill::~CXFA_Fill() = default;
+
+bool CXFA_Fill::IsVisible() {
+  return JSObject()
+             ->TryEnum(XFA_Attribute::Presence, true)
+             .value_or(XFA_AttributeValue::Visible) ==
+         XFA_AttributeValue::Visible;
 }
 
 void CXFA_Fill::SetColor(FX_ARGB color) {
-  CXFA_Node* pNode = m_pNode->GetProperty(0, XFA_Element::Color);
-  CFX_WideString wsColor;
-  int a, r, g, b;
-  ArgbDecode(color, a, r, g, b);
-  wsColor.Format(L"%d,%d,%d", r, g, b);
-  pNode->SetCData(XFA_ATTRIBUTE_Value, wsColor);
-}
-
-FX_ARGB CXFA_Fill::GetColor(bool bText) {
-  if (CXFA_Node* pNode = m_pNode->GetChild(0, XFA_Element::Color)) {
-    CFX_WideStringC wsColor;
-    if (pNode->TryCData(XFA_ATTRIBUTE_Value, wsColor, false))
-      return CXFA_Data::ToColor(wsColor);
+  CXFA_Color* pColor =
+      JSObject()->GetOrCreateProperty<CXFA_Color>(0, XFA_Element::Color);
+  if (!pColor) {
+    return;
   }
-  if (bText)
-    return 0xFF000000;
-  return 0xFFFFFFFF;
+
+  pColor->SetValue(color);
 }
 
-XFA_Element CXFA_Fill::GetFillType() {
-  CXFA_Node* pChild = m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild);
+FX_ARGB CXFA_Fill::GetFillColor() const {
+  const auto* pColor = GetChild<CXFA_Color>(0, XFA_Element::Color, false);
+  return pColor ? pColor->GetValueOrDefault(0xFFFFFFFF) : 0xFFFFFFFF;
+}
+
+FX_ARGB CXFA_Fill::GetTextColor() const {
+  const auto* pColor = GetChild<CXFA_Color>(0, XFA_Element::Color, false);
+  return pColor ? pColor->GetValueOrDefault(0xFF000000) : 0xFF000000;
+}
+
+XFA_Element CXFA_Fill::GetType() const {
+  CXFA_Node* pChild = GetFirstChild();
   while (pChild) {
     XFA_Element eType = pChild->GetElementType();
-    if (eType != XFA_Element::Color && eType != XFA_Element::Extras)
+    if (eType != XFA_Element::Color && eType != XFA_Element::Extras) {
       return eType;
+    }
 
-    pChild = pChild->GetNodeItem(XFA_NODEITEM_NextSibling);
+    pChild = pChild->GetNextSibling();
   }
   return XFA_Element::Solid;
 }
 
-int32_t CXFA_Fill::GetPattern(FX_ARGB& foreColor) {
-  CXFA_Node* pNode = m_pNode->GetProperty(0, XFA_Element::Pattern);
-  if (CXFA_Node* pColor = pNode->GetChild(0, XFA_Element::Color)) {
-    CFX_WideStringC wsColor;
-    pColor->TryCData(XFA_ATTRIBUTE_Value, wsColor, false);
-    foreColor = CXFA_Data::ToColor(wsColor);
-  } else {
-    foreColor = 0xFF000000;
+void CXFA_Fill::Draw(CFGAS_GEGraphics* pGS,
+                     const CFGAS_GEPath& fillPath,
+                     const CFX_RectF& rtWidget,
+                     const CFX_Matrix& matrix) {
+  CFGAS_GEGraphics::StateRestorer restorer(pGS);
+  switch (GetType()) {
+    case XFA_Element::Radial:
+      DrawRadial(pGS, fillPath, rtWidget, matrix);
+      break;
+    case XFA_Element::Pattern:
+      DrawPattern(pGS, fillPath, rtWidget, matrix);
+      break;
+    case XFA_Element::Linear:
+      DrawLinear(pGS, fillPath, rtWidget, matrix);
+      break;
+    case XFA_Element::Stipple:
+      DrawStipple(pGS, fillPath, rtWidget, matrix);
+      break;
+    default:
+      pGS->SetFillColor(CFGAS_GEColor(GetFillColor()));
+      pGS->FillPath(fillPath, CFX_FillRenderOptions::FillType::kWinding,
+                    matrix);
+      break;
   }
-  return pNode->GetEnum(XFA_ATTRIBUTE_Type);
 }
 
-int32_t CXFA_Fill::GetStipple(FX_ARGB& stippleColor) {
-  CXFA_Node* pNode = m_pNode->GetProperty(0, XFA_Element::Stipple);
-  int32_t eAttr = 50;
-  pNode->TryInteger(XFA_ATTRIBUTE_Rate, eAttr);
-  if (CXFA_Node* pColor = pNode->GetChild(0, XFA_Element::Color)) {
-    CFX_WideStringC wsColor;
-    pColor->TryCData(XFA_ATTRIBUTE_Value, wsColor, false);
-    stippleColor = CXFA_Data::ToColor(wsColor);
-  } else {
-    stippleColor = 0xFF000000;
+void CXFA_Fill::DrawStipple(CFGAS_GEGraphics* pGS,
+                            const CFGAS_GEPath& fillPath,
+                            const CFX_RectF& rtWidget,
+                            const CFX_Matrix& matrix) {
+  CXFA_Stipple* stipple =
+      JSObject()->GetOrCreateProperty<CXFA_Stipple>(0, XFA_Element::Stipple);
+  if (stipple) {
+    stipple->Draw(pGS, fillPath, rtWidget, matrix);
   }
-  return eAttr;
 }
 
-int32_t CXFA_Fill::GetLinear(FX_ARGB& endColor) {
-  CXFA_Node* pNode = m_pNode->GetProperty(0, XFA_Element::Linear);
-  XFA_ATTRIBUTEENUM eAttr = XFA_ATTRIBUTEENUM_ToRight;
-  pNode->TryEnum(XFA_ATTRIBUTE_Type, eAttr);
-  if (CXFA_Node* pColor = pNode->GetChild(0, XFA_Element::Color)) {
-    CFX_WideStringC wsColor;
-    pColor->TryCData(XFA_ATTRIBUTE_Value, wsColor, false);
-    endColor = CXFA_Data::ToColor(wsColor);
-  } else {
-    endColor = 0xFF000000;
+void CXFA_Fill::DrawRadial(CFGAS_GEGraphics* pGS,
+                           const CFGAS_GEPath& fillPath,
+                           const CFX_RectF& rtWidget,
+                           const CFX_Matrix& matrix) {
+  CXFA_Radial* radial =
+      JSObject()->GetOrCreateProperty<CXFA_Radial>(0, XFA_Element::Radial);
+  if (radial) {
+    radial->Draw(pGS, fillPath, GetFillColor(), rtWidget, matrix);
   }
-  return eAttr;
 }
 
-int32_t CXFA_Fill::GetRadial(FX_ARGB& endColor) {
-  CXFA_Node* pNode = m_pNode->GetProperty(0, XFA_Element::Radial);
-  XFA_ATTRIBUTEENUM eAttr = XFA_ATTRIBUTEENUM_ToEdge;
-  pNode->TryEnum(XFA_ATTRIBUTE_Type, eAttr);
-  if (CXFA_Node* pColor = pNode->GetChild(0, XFA_Element::Color)) {
-    CFX_WideStringC wsColor;
-    pColor->TryCData(XFA_ATTRIBUTE_Value, wsColor, false);
-    endColor = CXFA_Data::ToColor(wsColor);
-  } else {
-    endColor = 0xFF000000;
+void CXFA_Fill::DrawLinear(CFGAS_GEGraphics* pGS,
+                           const CFGAS_GEPath& fillPath,
+                           const CFX_RectF& rtWidget,
+                           const CFX_Matrix& matrix) {
+  CXFA_Linear* linear =
+      JSObject()->GetOrCreateProperty<CXFA_Linear>(0, XFA_Element::Linear);
+  if (linear) {
+    linear->Draw(pGS, fillPath, GetFillColor(), rtWidget, matrix);
   }
-  return eAttr;
+}
+
+void CXFA_Fill::DrawPattern(CFGAS_GEGraphics* pGS,
+                            const CFGAS_GEPath& fillPath,
+                            const CFX_RectF& rtWidget,
+                            const CFX_Matrix& matrix) {
+  CXFA_Pattern* pattern =
+      JSObject()->GetOrCreateProperty<CXFA_Pattern>(0, XFA_Element::Pattern);
+  if (pattern) {
+    pattern->Draw(pGS, fillPath, GetFillColor(), rtWidget, matrix);
+  }
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,28 @@
 #ifndef XFA_FWL_CFWL_EVENTVALIDATE_H_
 #define XFA_FWL_CFWL_EVENTVALIDATE_H_
 
+#include "core/fxcrt/widestring.h"
 #include "xfa/fwl/cfwl_event.h"
 
-class CFWL_EventValidate : public CFWL_Event {
+namespace pdfium {
+
+class CFWL_EventValidate final : public CFWL_Event {
  public:
-  explicit CFWL_EventValidate(CFWL_Widget* pSrcTarget);
+  CFWL_EventValidate(CFWL_Widget* pSrcTarget, const WideString& wsInsert);
   ~CFWL_EventValidate() override;
 
-  CFX_WideString wsInsert;
-  bool bValidate;
+  WideString GetInsert() const { return insert_; }
+  bool GetValidate() const { return validate_; }
+  void SetValidate(bool bValidate) { validate_ = bValidate; }
+
+ protected:
+  const WideString insert_;
+  bool validate_ = true;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_EventValidate;
 
 #endif  // XFA_FWL_CFWL_EVENTVALIDATE_H_

@@ -1,4 +1,4 @@
-// Copyright 2015 PDFium Authors. All rights reserved.
+// Copyright 2015 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,27 +9,35 @@
 
 #include <stdint.h>
 
-extern const uint16_t g_FXCMAP_83pv_RKSJ_H_1[];
-extern const uint16_t g_FXCMAP_90ms_RKSJ_H_2[];
-extern const uint16_t g_FXCMAP_90ms_RKSJ_V_2[];
-extern const uint16_t g_FXCMAP_90msp_RKSJ_H_2[];
-extern const uint16_t g_FXCMAP_90msp_RKSJ_V_2[];
-extern const uint16_t g_FXCMAP_90pv_RKSJ_H_1[];
-extern const uint16_t g_FXCMAP_Add_RKSJ_H_1[];
-extern const uint16_t g_FXCMAP_Add_RKSJ_V_1[];
-extern const uint16_t g_FXCMAP_EUC_H_1[];
-extern const uint16_t g_FXCMAP_EUC_V_1[];
-extern const uint16_t g_FXCMAP_Ext_RKSJ_H_2[];
-extern const uint16_t g_FXCMAP_Ext_RKSJ_V_2[];
-extern const uint16_t g_FXCMAP_H_1[];
-extern const uint16_t g_FXCMAP_V_1[];
-extern const uint16_t g_FXCMAP_UniJIS_UCS2_H_4[];
-extern const uint16_t g_FXCMAP_UniJIS_UCS2_V_4[];
-extern const uint16_t g_FXCMAP_UniJIS_UCS2_HW_H_4[];
-extern const uint16_t g_FXCMAP_UniJIS_UCS2_HW_V_4[];
-extern const uint16_t g_FXCMAP_UniJIS_UTF16_H_0[];
-extern const uint16_t g_FXCMAP_UniJIS_UTF16_H_0_DWord[];
-extern const uint16_t g_FXCMAP_UniJIS_UTF16_V_0[];
-extern const uint16_t g_FXCMAP_Japan1CID2Unicode_4[];
+#include "core/fpdfapi/cmaps/fpdf_cmaps.h"
+
+namespace fxcmap {
+
+extern const uint16_t k83pv_RKSJ_H_1[];
+extern const uint16_t k90ms_RKSJ_H_2[];
+extern const uint16_t k90ms_RKSJ_V_2[];
+extern const uint16_t k90msp_RKSJ_H_2[];
+extern const uint16_t k90msp_RKSJ_V_2[];
+extern const uint16_t k90pv_RKSJ_H_1[];
+extern const uint16_t kAdd_RKSJ_H_1[];
+extern const uint16_t kAdd_RKSJ_V_1[];
+extern const uint16_t kEUC_H_1[];
+extern const uint16_t kEUC_V_1[];
+extern const uint16_t kExt_RKSJ_H_2[];
+extern const uint16_t kExt_RKSJ_V_2[];
+extern const uint16_t kH_1[];
+extern const uint16_t kV_1[];
+extern const uint16_t kUniJIS_UCS2_H_4[];
+extern const uint16_t kUniJIS_UCS2_V_4[];
+extern const uint16_t kUniJIS_UCS2_HW_H_4[];
+extern const uint16_t kUniJIS_UCS2_HW_V_4[];
+extern const uint16_t kUniJIS_UTF16_H_0[];
+extern const uint16_t kUniJIS_UTF16_H_0_DWord[];
+extern const uint16_t kUniJIS_UTF16_V_0[];
+
+#include "Adobe-Japan1-UCS2_4.inc"
+#include "cmaps_japan1.inc"
+
+}  // namespace fxcmap
 
 #endif  // CORE_FPDFAPI_CMAPS_JAPAN1_CMAPS_JAPAN1_H_

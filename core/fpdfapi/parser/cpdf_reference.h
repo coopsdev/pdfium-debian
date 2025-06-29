@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,51 +7,67 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_REFERENCE_H_
 #define CORE_FPDFAPI_PARSER_CPDF_REFERENCE_H_
 
-#include <memory>
 #include <set>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_IndirectObjectHolder;
 
-class CPDF_Reference : public CPDF_Object {
+class CPDF_Reference final : public CPDF_Object {
  public:
-  CPDF_Reference(CPDF_IndirectObjectHolder* pDoc, uint32_t objnum);
-  ~CPDF_Reference() override;
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   // CPDF_Object:
   Type GetType() const override;
-  std::unique_ptr<CPDF_Object> Clone() const override;
-  CPDF_Object* GetDirect() const override;
-  CFX_ByteString GetString() const override;
-  FX_FLOAT GetNumber() const override;
+  RetainPtr<CPDF_Object> Clone() const override;
+  ByteString GetString() const override;
+  float GetNumber() const override;
   int GetInteger() const override;
-  CPDF_Dictionary* GetDict() const override;
-  bool IsReference() const override;
-  CPDF_Reference* AsReference() override;
-  const CPDF_Reference* AsReference() const override;
+  CPDF_Reference* AsMutableReference() override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
+  RetainPtr<CPDF_Reference> MakeReference(
+      CPDF_IndirectObjectHolder* holder) const override;
 
-  CPDF_IndirectObjectHolder* GetObjList() const { return m_pObjList; }
-  uint32_t GetRefObjNum() const { return m_RefObjNum; }
-
+  uint32_t GetRefObjNum() const { return ref_obj_num_; }
+  bool HasIndirectObjectHolder() const { return !!obj_list_; }
   void SetRef(CPDF_IndirectObjectHolder* pDoc, uint32_t objnum);
 
- protected:
-  std::unique_ptr<CPDF_Object> CloneNonCyclic(
+ private:
+  friend class CPDF_Dictionary;
+
+  CPDF_Reference(CPDF_IndirectObjectHolder* pDoc, uint32_t objnum);
+  ~CPDF_Reference() override;
+
+  const CPDF_Object* GetDirectInternal() const override;
+  const CPDF_Dictionary* GetDictInternal() const override;
+  RetainPtr<CPDF_Object> CloneNonCyclic(
       bool bDirect,
       std::set<const CPDF_Object*>* pVisited) const override;
-  CPDF_Object* SafeGetDirect() const;
 
-  CPDF_IndirectObjectHolder* m_pObjList;
-  uint32_t m_RefObjNum;
+  const CPDF_Object* FastGetDirect() const;
+
+  UnownedPtr<CPDF_IndirectObjectHolder> obj_list_;
+  uint32_t ref_obj_num_;
 };
 
 inline CPDF_Reference* ToReference(CPDF_Object* obj) {
-  return obj ? obj->AsReference() : nullptr;
+  return obj ? obj->AsMutableReference() : nullptr;
 }
 
 inline const CPDF_Reference* ToReference(const CPDF_Object* obj) {
   return obj ? obj->AsReference() : nullptr;
+}
+
+inline RetainPtr<CPDF_Reference> ToReference(RetainPtr<CPDF_Object> obj) {
+  return RetainPtr<CPDF_Reference>(ToReference(obj.Get()));
+}
+
+inline RetainPtr<const CPDF_Reference> ToReference(
+    RetainPtr<const CPDF_Object> obj) {
+  return RetainPtr<const CPDF_Reference>(ToReference(obj.Get()));
 }
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_REFERENCE_H_

@@ -23,6 +23,7 @@ endobj
   /Contents [21 0 R]
   /MediaBox [0 0 612 792]
 >>
+endobj
 % OpenAction action
 {{object 10 0}} <<
   /Type /Action
@@ -30,8 +31,9 @@ endobj
   /JS 11 0 R
 >>
 endobj
-% JS program to exexute
+% JS program to execute
 {{object 11 0}} <<
+  {{streamlen}}
 >>
 stream
 function TestOneFormat(fmt, src) {
@@ -43,6 +45,19 @@ function TestOneFormat(fmt, src) {
     app.alert(title + ": Caught error: " + e);
   }
 }
+
+// Error cases
+try {
+  util.printx();
+} catch (e) {
+  app.alert('PASS: ' + e);
+}
+try {
+  util.printx("99");
+} catch (e) {
+  app.alert('PASS: ' + e);
+}
+
 TestOneFormat("", "");
 TestOneFormat("", "123");
 TestOneFormat("??", "");
@@ -81,8 +96,6 @@ TestOneFormat("cl\\9ms", "-1Afp3.d33F$");
 endstream
 endobj
 {{xref}}
-trailer <<
-  /Root 1 0 R
->>
+{{trailer}}
 {{startxref}}
 %%EOF

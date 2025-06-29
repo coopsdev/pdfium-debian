@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,25 +7,26 @@
 #ifndef CORE_FPDFDOC_CPDF_LINK_H_
 #define CORE_FPDFDOC_CPDF_LINK_H_
 
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfdoc/cpdf_action.h"
 #include "core/fpdfdoc/cpdf_dest.h"
 #include "core/fxcrt/fx_coordinates.h"
-
-class CPDF_Dictionary;
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Link {
  public:
-  CPDF_Link() : m_pDict(nullptr) {}
-  explicit CPDF_Link(CPDF_Dictionary* pDict) : m_pDict(pDict) {}
+  CPDF_Link();
+  explicit CPDF_Link(RetainPtr<CPDF_Dictionary> dict);
+  CPDF_Link(const CPDF_Link& that);
+  ~CPDF_Link();
 
-  CPDF_Dictionary* GetDict() const { return m_pDict; }
-
+  RetainPtr<CPDF_Dictionary> GetMutableDict() const { return dict_; }
   CFX_FloatRect GetRect();
   CPDF_Dest GetDest(CPDF_Document* pDoc);
   CPDF_Action GetAction();
 
  private:
-  CPDF_Dictionary* m_pDict;
+  RetainPtr<CPDF_Dictionary> dict_;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_LINK_H_

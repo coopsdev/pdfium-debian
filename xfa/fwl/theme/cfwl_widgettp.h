@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,139 +7,83 @@
 #ifndef XFA_FWL_THEME_CFWL_WIDGETTP_H_
 #define XFA_FWL_THEME_CFWL_WIDGETTP_H_
 
+#include <array>
 #include <memory>
-#include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_system.h"
-#include "xfa/fgas/font/cfgas_gefont.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxge/dib/fx_dib.h"
+#include "v8/include/cppgc/garbage-collected.h"
 #include "xfa/fwl/theme/cfwl_utils.h"
-#include "xfa/fxgraphics/cfx_graphics.h"
+
+class CFGAS_GEGraphics;
+
+namespace pdfium {
 
 class CFDE_TextOut;
-class CFGAS_GEFont;
 class CFWL_ThemeBackground;
-class CFWL_ThemePart;
 class CFWL_ThemeText;
-class CFGAS_FontMgr;
-class CFWL_Widget;
+class IFWL_ThemeProvider;
 
-#if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
-class CFX_FontSourceEnum_File;
-#endif
-
-class CFWL_WidgetTP {
+class CFWL_WidgetTP : public cppgc::GarbageCollected<CFWL_WidgetTP> {
  public:
   virtual ~CFWL_WidgetTP();
 
-  virtual void Initialize();
-  virtual void Finalize();
+  virtual void DrawBackground(const CFWL_ThemeBackground& pParams);
+  virtual void DrawText(const CFWL_ThemeText& pParams);
 
-  virtual void DrawBackground(CFWL_ThemeBackground* pParams);
-  virtual void DrawText(CFWL_ThemeText* pParams);
-
-  const CFX_RetainPtr<CFGAS_GEFont>& GetFont() const { return m_pFDEFont; }
+  // Non-virtual, nothing to trace in subclasses at present.
+  void Trace(cppgc::Visitor* visitor) const;
 
  protected:
   struct CColorData {
-    FX_ARGB clrBorder[4];
-    FX_ARGB clrStart[4];
-    FX_ARGB clrEnd[4];
-    FX_ARGB clrSign[4];
+    std::array<FX_ARGB, 4> clrBorder;  // Indexed by enum FWLTHEME_STATE - 1.
+    std::array<FX_ARGB, 4> clrStart;   // Indexed by enum FWLTHEME_STATE - 1.
+    std::array<FX_ARGB, 4> clrEnd;     // Indexed by enum FWLTHEME_STATE - 1.
+    std::array<FX_ARGB, 4> clrSign;    // Indexed by enum FWLTHEME_STATE - 1.
   };
 
   CFWL_WidgetTP();
 
   void InitializeArrowColorData();
-  void InitTTO();
-  void FinalizeTTO();
+  void EnsureTTOInitialized(IFWL_ThemeProvider* pProvider);
 
-  void DrawBorder(CFX_Graphics* pGraphics,
-                  const CFX_RectF* pRect,
-                  CFX_Matrix* pMatrix = nullptr);
-  void FillBackground(CFX_Graphics* pGraphics,
-                      const CFX_RectF* pRect,
-                      CFX_Matrix* pMatrix = nullptr);
-  void FillSoildRect(CFX_Graphics* pGraphics,
+  void DrawBorder(CFGAS_GEGraphics* pGraphics,
+                  const CFX_RectF& rect,
+                  const CFX_Matrix& matrix);
+  void FillBackground(CFGAS_GEGraphics* pGraphics,
+                      const CFX_RectF& rect,
+                      const CFX_Matrix& matrix);
+  void FillSolidRect(CFGAS_GEGraphics* pGraphics,
                      FX_ARGB fillColor,
-                     const CFX_RectF* pRect,
-                     CFX_Matrix* pMatrix = nullptr);
-  void DrawAxialShading(CFX_Graphics* pGraphics,
-                        FX_FLOAT fx1,
-                        FX_FLOAT fy1,
-                        FX_FLOAT fx2,
-                        FX_FLOAT fy2,
-                        FX_ARGB beginColor,
-                        FX_ARGB endColor,
-                        CFX_Path* path,
-                        int32_t fillMode = FXFILL_WINDING,
-                        CFX_Matrix* pMatrix = nullptr);
-  void DrawFocus(CFX_Graphics* pGraphics,
-                 const CFX_RectF* pRect,
-                 CFX_Matrix* pMatrix = nullptr);
-  void DrawArrow(CFX_Graphics* pGraphics,
-                 const CFX_RectF* pRect,
+                     const CFX_RectF& rect,
+                     const CFX_Matrix& matrix);
+  void DrawFocus(CFGAS_GEGraphics* pGraphics,
+                 const CFX_RectF& rect,
+                 const CFX_Matrix& matrix);
+  void DrawArrow(CFGAS_GEGraphics* pGraphics,
+                 const CFX_RectF& rect,
                  FWLTHEME_DIRECTION eDict,
                  FX_ARGB argSign,
-                 CFX_Matrix* pMatrix = nullptr);
-  void DrawBtn(CFX_Graphics* pGraphics,
-               const CFX_RectF* pRect,
+                 const CFX_Matrix& matrix);
+  void DrawBtn(CFGAS_GEGraphics* pGraphics,
+               const CFX_RectF& rect,
                FWLTHEME_STATE eState,
-               CFX_Matrix* pMatrix = nullptr);
-  void DrawArrowBtn(CFX_Graphics* pGraphics,
-                    const CFX_RectF* pRect,
+               const CFX_Matrix& matrix);
+  void DrawArrowBtn(CFGAS_GEGraphics* pGraphics,
+                    const CFX_RectF& rect,
                     FWLTHEME_DIRECTION eDict,
                     FWLTHEME_STATE eState,
-                    CFX_Matrix* pMatrix = nullptr);
+                    const CFX_Matrix& matrix);
 
-  uint32_t m_dwRefCount;
-  std::unique_ptr<CFDE_TextOut> m_pTextOut;
-  CFX_RetainPtr<CFGAS_GEFont> m_pFDEFont;
-  std::unique_ptr<CColorData> m_pColorData;
+  std::unique_ptr<CFDE_TextOut> text_out_;
+  std::unique_ptr<CColorData> color_data_;
 };
 
-void FWLTHEME_Release();
+}  // namespace pdfium
 
-class CFWL_FontData {
- public:
-  CFWL_FontData();
-  virtual ~CFWL_FontData();
-
-  bool Equal(const CFX_WideStringC& wsFontFamily,
-             uint32_t dwFontStyles,
-             uint16_t wCodePage);
-  bool LoadFont(const CFX_WideStringC& wsFontFamily,
-                uint32_t dwFontStyles,
-                uint16_t wCodePage);
-  CFX_RetainPtr<CFGAS_GEFont> GetFont() const { return m_pFont; }
-
- protected:
-  CFX_WideString m_wsFamily;
-  uint32_t m_dwStyles;
-  uint32_t m_dwCodePage;
-#if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
-  std::unique_ptr<CFX_FontSourceEnum_File> m_pFontSource;
-#endif
-  std::unique_ptr<CFGAS_FontMgr> m_pFontMgr;
-  CFX_RetainPtr<CFGAS_GEFont> m_pFont;
-};
-
-class CFWL_FontManager {
- public:
-  static CFWL_FontManager* GetInstance();
-  static void DestroyInstance();
-
-  CFX_RetainPtr<CFGAS_GEFont> FindFont(const CFX_WideStringC& wsFontFamily,
-                                       uint32_t dwFontStyles,
-                                       uint16_t dwCodePage);
-
- protected:
-  CFWL_FontManager();
-  virtual ~CFWL_FontManager();
-
-  static CFWL_FontManager* s_FontManager;
-  std::vector<std::unique_ptr<CFWL_FontData>> m_FontsArray;
-};
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_WidgetTP;
 
 #endif  // XFA_FWL_THEME_CFWL_WIDGETTP_H_

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,46 +7,56 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_STRING_H_
 #define CORE_FPDFAPI_PARSER_CPDF_STRING_H_
 
-#include <memory>
-
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
 #include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
 
-class CPDF_String : public CPDF_Object {
+class CPDF_String final : public CPDF_Object {
  public:
-  CPDF_String();
-  CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool,
-              const CFX_ByteString& str,
-              bool bHex);
-  CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool, const CFX_WideString& str);
-  ~CPDF_String() override;
+  CONSTRUCT_VIA_MAKE_RETAIN;
+
+  // Used as a placeholder to differentiate constructors.
+  enum class DataType { kIsHex };
 
   // CPDF_Object:
   Type GetType() const override;
-  std::unique_ptr<CPDF_Object> Clone() const override;
-  CFX_ByteString GetString() const override;
-  CFX_WideString GetUnicodeText() const override;
-  void SetString(const CFX_ByteString& str) override;
-  bool IsString() const override;
-  CPDF_String* AsString() override;
-  const CPDF_String* AsString() const override;
+  RetainPtr<CPDF_Object> Clone() const override;
+  ByteString GetString() const override;
+  WideString GetUnicodeText() const override;
+  void SetString(const ByteString& str) override;
+  CPDF_String* AsMutableString() override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
 
-  bool IsHex() const { return m_bHex; }
+  bool IsHex() const { return output_is_hex_; }
+  ByteString EncodeString() const;
 
- protected:
-  CFX_ByteString m_String;
-  bool m_bHex;
+ private:
+  CPDF_String();
+  CPDF_String(WeakPtr<ByteStringPool> pool,
+              pdfium::span<const uint8_t> data,
+              DataType is_hex);
+  CPDF_String(WeakPtr<ByteStringPool> pool, const ByteString& str);
+  CPDF_String(WeakPtr<ByteStringPool> pool, WideStringView str);
+  ~CPDF_String() override;
+
+  ByteString data_;
+  bool output_is_hex_ = false;
 };
 
 inline CPDF_String* ToString(CPDF_Object* obj) {
-  return obj ? obj->AsString() : nullptr;
+  return obj ? obj->AsMutableString() : nullptr;
 }
 
 inline const CPDF_String* ToString(const CPDF_Object* obj) {
   return obj ? obj->AsString() : nullptr;
+}
+
+inline RetainPtr<const CPDF_String> ToString(RetainPtr<const CPDF_Object> obj) {
+  return RetainPtr<const CPDF_String>(ToString(obj.Get()));
 }
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_STRING_H_

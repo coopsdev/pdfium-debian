@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,45 +6,39 @@
 
 #include "xfa/fwl/cfwl_picturebox.h"
 
-#include <memory>
+namespace pdfium {
 
-#include "third_party/base/ptr_util.h"
+CFWL_PictureBox::CFWL_PictureBox(CFWL_App* app)
+    : CFWL_Widget(app, CFWL_Widget::Properties(), nullptr) {}
 
-CFWL_PictureBox::CFWL_PictureBox(const CFWL_App* app)
-    : CFWL_Widget(app, pdfium::MakeUnique<CFWL_WidgetProperties>(), nullptr) {
-  m_rtClient.Reset();
-  m_rtImage.Reset();
-  m_matrix.SetIdentity();
-}
-
-CFWL_PictureBox::~CFWL_PictureBox() {}
+CFWL_PictureBox::~CFWL_PictureBox() = default;
 
 FWL_Type CFWL_PictureBox::GetClassID() const {
   return FWL_Type::PictureBox;
 }
 
 void CFWL_PictureBox::Update() {
-  if (IsLocked())
+  if (IsLocked()) {
     return;
-  if (!m_pProperties->m_pThemeProvider)
-    m_pProperties->m_pThemeProvider = GetAvailableTheme();
+  }
 
-  m_rtClient = GetClientRect();
+  client_rect_ = GetClientRect();
 }
 
-void CFWL_PictureBox::DrawWidget(CFX_Graphics* pGraphics,
-                                 const CFX_Matrix* pMatrix) {
-  if (!pGraphics)
+void CFWL_PictureBox::DrawWidget(CFGAS_GEGraphics* pGraphics,
+                                 const CFX_Matrix& matrix) {
+  if (!pGraphics) {
     return;
-  if (!m_pProperties->m_pThemeProvider)
-    return;
+  }
 
-  IFWL_ThemeProvider* pTheme = GetAvailableTheme();
-  if (HasBorder())
-    DrawBorder(pGraphics, CFWL_Part::Border, pTheme, pMatrix);
+  if (HasBorder()) {
+    DrawBorder(pGraphics, CFWL_ThemePart::Part::kBorder, matrix);
+  }
 }
 
-void CFWL_PictureBox::OnDrawWidget(CFX_Graphics* pGraphics,
-                                   const CFX_Matrix* pMatrix) {
-  DrawWidget(pGraphics, pMatrix);
+void CFWL_PictureBox::OnDrawWidget(CFGAS_GEGraphics* pGraphics,
+                                   const CFX_Matrix& matrix) {
+  DrawWidget(pGraphics, matrix);
 }
+
+}  // namespace pdfium

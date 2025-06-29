@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,9 @@
 #include "xfa/fwl/cfwl_checkbox.h"
 
 #include <algorithm>
-#include <memory>
 #include <utility>
-#include <vector>
 
-#include "third_party/base/ptr_util.h"
-#include "xfa/fde/tto/fde_textout.h"
+#include "xfa/fde/cfde_textout.h"
 #include "xfa/fwl/cfwl_app.h"
 #include "xfa/fwl/cfwl_event.h"
 #include "xfa/fwl/cfwl_messagekey.h"
@@ -21,7 +18,10 @@
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_themetext.h"
 #include "xfa/fwl/cfwl_widgetmgr.h"
+#include "xfa/fwl/fwl_widgetdef.h"
 #include "xfa/fwl/ifwl_themeprovider.h"
+
+namespace pdfium {
 
 namespace {
 
@@ -29,223 +29,196 @@ const int kCaptionMargin = 5;
 
 }  // namespace
 
-CFWL_CheckBox::CFWL_CheckBox(const CFWL_App* app)
-    : CFWL_Widget(app, pdfium::MakeUnique<CFWL_WidgetProperties>(), nullptr),
-      m_dwTTOStyles(FDE_TTOSTYLE_SingleLine),
-      m_iTTOAlign(FDE_TTOALIGNMENT_Center),
-      m_bBtnDown(false),
-      m_fBoxHeight(16.0f) {
-  m_rtClient.Reset();
-  m_rtBox.Reset();
-  m_rtCaption.Reset();
-  m_rtFocus.Reset();
+CFWL_CheckBox::CFWL_CheckBox(CFWL_App* app)
+    : CFWL_Widget(app, Properties(), nullptr) {
+  tto_styles_.single_line_ = true;
 }
 
-CFWL_CheckBox::~CFWL_CheckBox() {}
+CFWL_CheckBox::~CFWL_CheckBox() = default;
 
 FWL_Type CFWL_CheckBox::GetClassID() const {
   return FWL_Type::CheckBox;
 }
 
-void CFWL_CheckBox::SetBoxSize(FX_FLOAT fHeight) {
-  m_fBoxHeight = fHeight;
+void CFWL_CheckBox::SetBoxSize(float fHeight) {
+  box_height_ = fHeight;
 }
 
 void CFWL_CheckBox::Update() {
-  if (IsLocked())
+  if (IsLocked()) {
     return;
-  if (!m_pProperties->m_pThemeProvider)
-    m_pProperties->m_pThemeProvider = GetAvailableTheme();
+  }
 
   UpdateTextOutStyles();
   Layout();
 }
 
-void CFWL_CheckBox::DrawWidget(CFX_Graphics* pGraphics,
-                               const CFX_Matrix* pMatrix) {
-  if (!pGraphics)
+void CFWL_CheckBox::DrawWidget(CFGAS_GEGraphics* pGraphics,
+                               const CFX_Matrix& matrix) {
+  if (!pGraphics) {
     return;
-  if (!m_pProperties->m_pThemeProvider)
-    return;
-
-  IFWL_ThemeProvider* pTheme = m_pProperties->m_pThemeProvider;
-  if (HasBorder()) {
-    DrawBorder(pGraphics, CFWL_Part::Border, m_pProperties->m_pThemeProvider,
-               pMatrix);
   }
 
-  int32_t dwStates = GetPartStates();
+  if (HasBorder()) {
+    DrawBorder(pGraphics, CFWL_ThemePart::Part::kBorder, matrix);
+  }
 
-  CFWL_ThemeBackground param;
-  param.m_pWidget = this;
-  param.m_iPart = CFWL_Part::Background;
-  param.m_dwStates = dwStates;
-  param.m_pGraphics = pGraphics;
-  if (pMatrix)
-    param.m_matrix.Concat(*pMatrix);
-  param.m_rtPart = m_rtClient;
-  if (m_pProperties->m_dwStates & FWL_WGTSTATE_Focused)
-    param.m_pData = &m_rtFocus;
-  pTheme->DrawBackground(&param);
+  Mask<CFWL_PartState> dwStates = GetPartStates();
+  IFWL_ThemeProvider* pTheme = GetThemeProvider();
+  CFWL_ThemeBackground param(CFWL_ThemePart::Part::kBackground, this,
+                             pGraphics);
+  param.states_ = dwStates;
+  param.matrix_ = matrix;
+  param.part_rect_ = client_rect_;
+  if (properties_.states_ & FWL_STATE_WGT_Focused) {
+    param.data_rect_ = &focus_rect_;
+  }
+  pTheme->DrawBackground(param);
 
-  param.m_iPart = CFWL_Part::CheckBox;
-  param.m_rtPart = m_rtBox;
-  pTheme->DrawBackground(&param);
+  CFWL_ThemeBackground checkParam(CFWL_ThemePart::Part::kCheckBox, this,
+                                  pGraphics);
+  checkParam.states_ = dwStates;
+  checkParam.matrix_ = matrix;
+  checkParam.part_rect_ = box_rect_;
+  if (properties_.states_ & FWL_STATE_WGT_Focused) {
+    checkParam.data_rect_ = &focus_rect_;
+  }
+  pTheme->DrawBackground(checkParam);
 
-  CFWL_ThemeText textParam;
-  textParam.m_pWidget = this;
-  textParam.m_iPart = CFWL_Part::Caption;
-  textParam.m_dwStates = dwStates;
-  textParam.m_pGraphics = pGraphics;
-  if (pMatrix)
-    textParam.m_matrix.Concat(*pMatrix);
-  textParam.m_rtPart = m_rtCaption;
-  textParam.m_wsText = L"Check box";
-  textParam.m_dwTTOStyles = m_dwTTOStyles;
-  textParam.m_iTTOAlign = m_iTTOAlign;
-  pTheme->DrawText(&textParam);
+  CFWL_ThemeText textParam(CFWL_ThemePart::Part::kCaption, this, pGraphics);
+  textParam.states_ = dwStates;
+  textParam.matrix_ = matrix;
+  textParam.part_rect_ = caption_rect_;
+  textParam.text_ = WideString::FromASCII("Check box");
+  textParam.tto_styles_ = tto_styles_;
+  textParam.tto_align_ = tto_align_;
+  pTheme->DrawText(textParam);
 }
 
 void CFWL_CheckBox::SetCheckState(int32_t iCheck) {
-  m_pProperties->m_dwStates &= ~FWL_STATE_CKB_CheckMask;
+  properties_.states_ &= ~FWL_STATE_CKB_CheckMask;
   switch (iCheck) {
     case 1:
-      m_pProperties->m_dwStates |= FWL_STATE_CKB_Checked;
+      properties_.states_ |= FWL_STATE_CKB_Checked;
       break;
     case 2:
-      if (m_pProperties->m_dwStyleExes & FWL_STYLEEXT_CKB_3State)
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Neutral;
+      if (properties_.style_exts_ & FWL_STYLEEXT_CKB_3State) {
+        properties_.states_ |= FWL_STATE_CKB_Neutral;
+      }
       break;
     default:
       break;
   }
-  RepaintRect(m_rtClient);
+  RepaintRect(client_rect_);
 }
 
 void CFWL_CheckBox::Layout() {
-  m_pProperties->m_rtWidget.width =
-      FXSYS_round(m_pProperties->m_rtWidget.width);
-  m_pProperties->m_rtWidget.height =
-      FXSYS_round(m_pProperties->m_rtWidget.height);
-  m_rtClient = GetClientRect();
+  widget_rect_.width = FXSYS_roundf(widget_rect_.width);
+  widget_rect_.height = FXSYS_roundf(widget_rect_.height);
+  client_rect_ = GetClientRect();
 
-  FX_FLOAT fTextLeft = m_rtClient.left + m_fBoxHeight;
-  m_rtBox = CFX_RectF(m_rtClient.TopLeft(), m_fBoxHeight, m_fBoxHeight);
-  m_rtCaption = CFX_RectF(fTextLeft, m_rtClient.top,
-                          m_rtClient.right() - fTextLeft, m_rtClient.height);
-  m_rtCaption.Inflate(-kCaptionMargin, -kCaptionMargin);
+  float fTextLeft = client_rect_.left + box_height_;
+  box_rect_ = CFX_RectF(client_rect_.TopLeft(), box_height_, box_height_);
+  caption_rect_ =
+      CFX_RectF(fTextLeft, client_rect_.top, client_rect_.right() - fTextLeft,
+                client_rect_.height);
+  caption_rect_.Inflate(-kCaptionMargin, -kCaptionMargin);
 
-  CFX_RectF rtFocus(m_rtCaption.left, m_rtCaption.top, m_rtCaption.width,
-                    m_rtCaption.height);
-
-  CalcTextRect(L"Check box", m_pProperties->m_pThemeProvider, m_dwTTOStyles,
-               m_iTTOAlign, rtFocus);
-
-  m_rtFocus = CFX_RectF(m_rtCaption.TopLeft(),
-                        std::max(m_rtCaption.width, rtFocus.width),
-                        std::min(m_rtCaption.height, rtFocus.height));
-  m_rtFocus.Inflate(1, 1);
+  CFX_RectF rtFocus = caption_rect_;
+  CalcTextRect(WideString::FromASCII("Check box"), tto_styles_, tto_align_,
+               &rtFocus);
+  focus_rect_ = CFX_RectF(caption_rect_.TopLeft(),
+                          std::max(caption_rect_.width, rtFocus.width),
+                          std::min(caption_rect_.height, rtFocus.height));
+  focus_rect_.Inflate(1, 1);
 }
 
-uint32_t CFWL_CheckBox::GetPartStates() const {
-  int32_t dwStates = CFWL_PartState_Normal;
-  if ((m_pProperties->m_dwStates & FWL_STATE_CKB_CheckMask) ==
+Mask<CFWL_PartState> CFWL_CheckBox::GetPartStates() const {
+  Mask<CFWL_PartState> dwStates = CFWL_PartState::kNormal;
+  if ((properties_.states_ & FWL_STATE_CKB_CheckMask) ==
       FWL_STATE_CKB_Neutral) {
-    dwStates = CFWL_PartState_Neutral;
-  } else if ((m_pProperties->m_dwStates & FWL_STATE_CKB_CheckMask) ==
+    dwStates = CFWL_PartState::kNeutral;
+  } else if ((properties_.states_ & FWL_STATE_CKB_CheckMask) ==
              FWL_STATE_CKB_Checked) {
-    dwStates = CFWL_PartState_Checked;
+    dwStates = CFWL_PartState::kChecked;
   }
-  if (m_pProperties->m_dwStates & FWL_WGTSTATE_Disabled)
-    dwStates |= CFWL_PartState_Disabled;
-  else if (m_pProperties->m_dwStates & FWL_STATE_CKB_Hovered)
-    dwStates |= CFWL_PartState_Hovered;
-  else if (m_pProperties->m_dwStates & FWL_STATE_CKB_Pressed)
-    dwStates |= CFWL_PartState_Pressed;
-  else
-    dwStates |= CFWL_PartState_Normal;
-  if (m_pProperties->m_dwStates & FWL_WGTSTATE_Focused)
-    dwStates |= CFWL_PartState_Focused;
+  if (properties_.states_ & FWL_STATE_WGT_Disabled) {
+    dwStates |= CFWL_PartState::kDisabled;
+  } else if (properties_.states_ & FWL_STATE_CKB_Hovered) {
+    dwStates |= CFWL_PartState::kHovered;
+  } else if (properties_.states_ & FWL_STATE_CKB_Pressed) {
+    dwStates |= CFWL_PartState::kPressed;
+  } else {
+    dwStates |= CFWL_PartState::kNormal;
+  }
+  if (properties_.states_ & FWL_STATE_WGT_Focused) {
+    dwStates |= CFWL_PartState::kFocused;
+  }
   return dwStates;
 }
 
 void CFWL_CheckBox::UpdateTextOutStyles() {
-  m_iTTOAlign = FDE_TTOALIGNMENT_TopLeft;
-  m_dwTTOStyles = 0;
-  m_dwTTOStyles |= FDE_TTOSTYLE_SingleLine;
+  tto_align_ = FDE_TextAlignment::kTopLeft;
+  tto_styles_.Reset();
+  tto_styles_.single_line_ = true;
 }
 
 void CFWL_CheckBox::NextStates() {
-  uint32_t dwFirststate = m_pProperties->m_dwStates;
-  if (m_pProperties->m_dwStyleExes & FWL_STYLEEXT_CKB_RadioButton) {
-    if ((m_pProperties->m_dwStates & FWL_STATE_CKB_CheckMask) ==
+  uint32_t dwFirststate = properties_.states_;
+  if (properties_.style_exts_ & FWL_STYLEEXT_CKB_RadioButton) {
+    if ((properties_.states_ & FWL_STATE_CKB_CheckMask) ==
         FWL_STATE_CKB_Unchecked) {
-      CFWL_WidgetMgr* pWidgetMgr = GetOwnerApp()->GetWidgetMgr();
-      if (!pWidgetMgr->IsFormDisabled()) {
-        std::vector<CFWL_Widget*> radioarr =
-            pWidgetMgr->GetSameGroupRadioButton(this);
-        for (const auto& pWidget : radioarr) {
-          CFWL_CheckBox* pCheckBox = static_cast<CFWL_CheckBox*>(pWidget);
-          if (pCheckBox != this &&
-              pCheckBox->GetStates() & FWL_STATE_CKB_Checked) {
-            pCheckBox->SetCheckState(0);
-            m_pWidgetMgr->RepaintWidget(
-                pCheckBox, CFX_RectF(0, 0, pCheckBox->GetWidgetRect().Size()));
-            break;
-          }
-        }
-      }
-      m_pProperties->m_dwStates |= FWL_STATE_CKB_Checked;
+      properties_.states_ |= FWL_STATE_CKB_Checked;
     }
   } else {
-    if ((m_pProperties->m_dwStates & FWL_STATE_CKB_CheckMask) ==
+    if ((properties_.states_ & FWL_STATE_CKB_CheckMask) ==
         FWL_STATE_CKB_Neutral) {
-      m_pProperties->m_dwStates &= ~FWL_STATE_CKB_CheckMask;
-      if (m_pProperties->m_dwStyleExes & FWL_STYLEEXT_CKB_3State)
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Checked;
-    } else if ((m_pProperties->m_dwStates & FWL_STATE_CKB_CheckMask) ==
+      properties_.states_ &= ~FWL_STATE_CKB_CheckMask;
+      if (properties_.style_exts_ & FWL_STYLEEXT_CKB_3State) {
+        properties_.states_ |= FWL_STATE_CKB_Checked;
+      }
+    } else if ((properties_.states_ & FWL_STATE_CKB_CheckMask) ==
                FWL_STATE_CKB_Checked) {
-      m_pProperties->m_dwStates &= ~FWL_STATE_CKB_CheckMask;
+      properties_.states_ &= ~FWL_STATE_CKB_CheckMask;
     } else {
-      if (m_pProperties->m_dwStyleExes & FWL_STYLEEXT_CKB_3State)
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Neutral;
-      else
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Checked;
+      if (properties_.style_exts_ & FWL_STYLEEXT_CKB_3State) {
+        properties_.states_ |= FWL_STATE_CKB_Neutral;
+      } else {
+        properties_.states_ |= FWL_STATE_CKB_Checked;
+      }
     }
   }
 
-  RepaintRect(m_rtClient);
-  if (dwFirststate == m_pProperties->m_dwStates)
+  RepaintRect(client_rect_);
+  if (dwFirststate == properties_.states_) {
     return;
+  }
 
   CFWL_Event wmCheckBoxState(CFWL_Event::Type::CheckStateChanged, this);
   DispatchEvent(&wmCheckBoxState);
 }
 
 void CFWL_CheckBox::OnProcessMessage(CFWL_Message* pMessage) {
-  if (!pMessage)
-    return;
-
   switch (pMessage->GetType()) {
-    case CFWL_Message::Type::SetFocus:
-      OnFocusChanged(true);
+    case CFWL_Message::Type::kSetFocus:
+      OnFocusGained();
       break;
-    case CFWL_Message::Type::KillFocus:
-      OnFocusChanged(false);
+    case CFWL_Message::Type::kKillFocus:
+      OnFocusLost();
       break;
-    case CFWL_Message::Type::Mouse: {
+    case CFWL_Message::Type::kMouse: {
       CFWL_MessageMouse* pMsg = static_cast<CFWL_MessageMouse*>(pMessage);
-      switch (pMsg->m_dwCmd) {
-        case FWL_MouseCommand::LeftButtonDown:
+      switch (pMsg->cmd_) {
+        case CFWL_MessageMouse::MouseCommand::kLeftButtonDown:
           OnLButtonDown();
           break;
-        case FWL_MouseCommand::LeftButtonUp:
+        case CFWL_MessageMouse::MouseCommand::kLeftButtonUp:
           OnLButtonUp(pMsg);
           break;
-        case FWL_MouseCommand::Move:
+        case CFWL_MessageMouse::MouseCommand::kMove:
           OnMouseMove(pMsg);
           break;
-        case FWL_MouseCommand::Leave:
+        case CFWL_MessageMouse::MouseCommand::kLeave:
           OnMouseLeave();
           break;
         default:
@@ -253,109 +226,120 @@ void CFWL_CheckBox::OnProcessMessage(CFWL_Message* pMessage) {
       }
       break;
     }
-    case CFWL_Message::Type::Key: {
+    case CFWL_Message::Type::kKey: {
       CFWL_MessageKey* pKey = static_cast<CFWL_MessageKey*>(pMessage);
-      if (pKey->m_dwCmd == FWL_KeyCommand::KeyDown)
+      if (pKey->cmd_ == CFWL_MessageKey::KeyCommand::kKeyDown) {
         OnKeyDown(pKey);
+      }
       break;
     }
     default:
       break;
   }
-
-  CFWL_Widget::OnProcessMessage(pMessage);
+  // Dst target could be |this|, continue only if not destroyed by above.
+  if (pMessage->GetDstTarget()) {
+    CFWL_Widget::OnProcessMessage(pMessage);
+  }
 }
 
-void CFWL_CheckBox::OnDrawWidget(CFX_Graphics* pGraphics,
-                                 const CFX_Matrix* pMatrix) {
-  DrawWidget(pGraphics, pMatrix);
+void CFWL_CheckBox::OnDrawWidget(CFGAS_GEGraphics* pGraphics,
+                                 const CFX_Matrix& matrix) {
+  DrawWidget(pGraphics, matrix);
 }
 
-void CFWL_CheckBox::OnFocusChanged(bool bSet) {
-  if (bSet)
-    m_pProperties->m_dwStates |= FWL_WGTSTATE_Focused;
-  else
-    m_pProperties->m_dwStates &= ~FWL_WGTSTATE_Focused;
+void CFWL_CheckBox::OnFocusGained() {
+  properties_.states_ |= FWL_STATE_WGT_Focused;
+  RepaintRect(client_rect_);
+}
 
-  RepaintRect(m_rtClient);
+void CFWL_CheckBox::OnFocusLost() {
+  properties_.states_ &= ~FWL_STATE_WGT_Focused;
+  RepaintRect(client_rect_);
 }
 
 void CFWL_CheckBox::OnLButtonDown() {
-  if (m_pProperties->m_dwStates & FWL_WGTSTATE_Disabled)
+  if (properties_.states_ & FWL_STATE_WGT_Disabled) {
     return;
-  if ((m_pProperties->m_dwStates & FWL_WGTSTATE_Focused) == 0)
-    SetFocus(true);
+  }
 
-  m_bBtnDown = true;
-  m_pProperties->m_dwStates &= ~FWL_STATE_CKB_Hovered;
-  m_pProperties->m_dwStates |= FWL_STATE_CKB_Pressed;
-  RepaintRect(m_rtClient);
+  btn_down_ = true;
+  properties_.states_ &= ~FWL_STATE_CKB_Hovered;
+  properties_.states_ |= FWL_STATE_CKB_Pressed;
+  RepaintRect(client_rect_);
 }
 
 void CFWL_CheckBox::OnLButtonUp(CFWL_MessageMouse* pMsg) {
-  if (!m_bBtnDown)
+  if (!btn_down_) {
     return;
+  }
 
-  m_bBtnDown = false;
-  if (!m_rtClient.Contains(pMsg->m_pos))
+  btn_down_ = false;
+  if (!client_rect_.Contains(pMsg->pos_)) {
     return;
+  }
 
-  m_pProperties->m_dwStates |= FWL_STATE_CKB_Hovered;
-  m_pProperties->m_dwStates &= ~FWL_STATE_CKB_Pressed;
+  properties_.states_ |= FWL_STATE_CKB_Hovered;
+  properties_.states_ &= ~FWL_STATE_CKB_Pressed;
   NextStates();
 }
 
 void CFWL_CheckBox::OnMouseMove(CFWL_MessageMouse* pMsg) {
-  if (m_pProperties->m_dwStates & FWL_WGTSTATE_Disabled)
+  if (properties_.states_ & FWL_STATE_WGT_Disabled) {
     return;
+  }
 
   bool bRepaint = false;
-  if (m_bBtnDown) {
-    if (m_rtClient.Contains(pMsg->m_pos)) {
-      if ((m_pProperties->m_dwStates & FWL_STATE_CKB_Pressed) == 0) {
+  if (btn_down_) {
+    if (client_rect_.Contains(pMsg->pos_)) {
+      if ((properties_.states_ & FWL_STATE_CKB_Pressed) == 0) {
         bRepaint = true;
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Pressed;
+        properties_.states_ |= FWL_STATE_CKB_Pressed;
       }
-      if ((m_pProperties->m_dwStates & FWL_STATE_CKB_Hovered)) {
+      if ((properties_.states_ & FWL_STATE_CKB_Hovered)) {
         bRepaint = true;
-        m_pProperties->m_dwStates &= ~FWL_STATE_CKB_Hovered;
+        properties_.states_ &= ~FWL_STATE_CKB_Hovered;
       }
     } else {
-      if (m_pProperties->m_dwStates & FWL_STATE_CKB_Pressed) {
+      if (properties_.states_ & FWL_STATE_CKB_Pressed) {
         bRepaint = true;
-        m_pProperties->m_dwStates &= ~FWL_STATE_CKB_Pressed;
+        properties_.states_ &= ~FWL_STATE_CKB_Pressed;
       }
-      if ((m_pProperties->m_dwStates & FWL_STATE_CKB_Hovered) == 0) {
+      if ((properties_.states_ & FWL_STATE_CKB_Hovered) == 0) {
         bRepaint = true;
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Hovered;
+        properties_.states_ |= FWL_STATE_CKB_Hovered;
       }
     }
   } else {
-    if (m_rtClient.Contains(pMsg->m_pos)) {
-      if ((m_pProperties->m_dwStates & FWL_STATE_CKB_Hovered) == 0) {
+    if (client_rect_.Contains(pMsg->pos_)) {
+      if ((properties_.states_ & FWL_STATE_CKB_Hovered) == 0) {
         bRepaint = true;
-        m_pProperties->m_dwStates |= FWL_STATE_CKB_Hovered;
+        properties_.states_ |= FWL_STATE_CKB_Hovered;
       }
     }
   }
-  if (bRepaint)
-    RepaintRect(m_rtBox);
+  if (bRepaint) {
+    RepaintRect(box_rect_);
+  }
 }
 
 void CFWL_CheckBox::OnMouseLeave() {
-  if (m_bBtnDown)
-    m_pProperties->m_dwStates |= FWL_STATE_CKB_Hovered;
-  else
-    m_pProperties->m_dwStates &= ~FWL_STATE_CKB_Hovered;
+  if (btn_down_) {
+    properties_.states_ |= FWL_STATE_CKB_Hovered;
+  } else {
+    properties_.states_ &= ~FWL_STATE_CKB_Hovered;
+  }
 
-  RepaintRect(m_rtBox);
+  RepaintRect(box_rect_);
 }
 
 void CFWL_CheckBox::OnKeyDown(CFWL_MessageKey* pMsg) {
-  if (pMsg->m_dwKeyCode == FWL_VKEY_Tab)
+  if (pMsg->key_code_or_char_ == XFA_FWL_VKEY_Tab) {
     return;
-  if (pMsg->m_dwKeyCode == FWL_VKEY_Return ||
-      pMsg->m_dwKeyCode == FWL_VKEY_Space) {
+  }
+  if (pMsg->key_code_or_char_ == XFA_FWL_VKEY_Return ||
+      pMsg->key_code_or_char_ == XFA_FWL_VKEY_Space) {
     NextStates();
   }
 }
+
+}  // namespace pdfium

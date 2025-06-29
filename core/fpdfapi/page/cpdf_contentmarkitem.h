@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,38 +7,36 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_CONTENTMARKITEM_H_
 #define CORE_FPDFAPI_PAGE_CPDF_CONTENTMARKITEM_H_
 
-#include <memory>
-
-#include "core/fxcrt/fx_memory.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Dictionary;
 
-class CPDF_ContentMarkItem {
+class CPDF_ContentMarkItem final : public Retainable {
  public:
-  enum ParamType { None, PropertiesDict, DirectDict };
+  enum ParamType { kNone, kPropertiesDict, kDirectDict };
 
-  CPDF_ContentMarkItem();
-  CPDF_ContentMarkItem(const CPDF_ContentMarkItem& that);
-  ~CPDF_ContentMarkItem();
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
-  CPDF_ContentMarkItem& operator=(CPDF_ContentMarkItem&& other) = default;
+  const ByteString& GetName() const { return mark_name_; }
+  ParamType GetParamType() const { return param_type_; }
+  RetainPtr<const CPDF_Dictionary> GetParam() const;
+  RetainPtr<CPDF_Dictionary> GetParam();
+  const ByteString& GetPropertyName() const { return property_name_; }
 
-  CFX_ByteString GetName() const { return m_MarkName; }
-  ParamType GetParamType() const { return m_ParamType; }
-  CPDF_Dictionary* GetParam() const;
-  bool HasMCID() const;
-
-  void SetName(const CFX_ByteString& name) { m_MarkName = name; }
-  void SetDirectDict(std::unique_ptr<CPDF_Dictionary> pDict);
-  void SetPropertiesDict(CPDF_Dictionary* pDict);
+  void SetDirectDict(RetainPtr<CPDF_Dictionary> dict);
+  void SetPropertiesHolder(RetainPtr<CPDF_Dictionary> pHolder,
+                           const ByteString& property_name);
 
  private:
-  CFX_ByteString m_MarkName;
-  ParamType m_ParamType;
-  CPDF_Dictionary* m_pPropertiesDict;  // not owned.
-  std::unique_ptr<CPDF_Dictionary> m_pDirectDict;
+  explicit CPDF_ContentMarkItem(ByteString name);
+  ~CPDF_ContentMarkItem() override;
+
+  ParamType param_type_ = kNone;
+  ByteString mark_name_;
+  ByteString property_name_;
+  RetainPtr<CPDF_Dictionary> properties_holder_;
+  RetainPtr<CPDF_Dictionary> direct_dict_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_CONTENTMARKITEM_H_

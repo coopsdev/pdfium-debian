@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,19 @@
 #ifndef CORE_FPDFAPI_FONT_CPDF_CIDFONT_H_
 #define CORE_FPDFAPI_FONT_CPDF_CIDFONT_H_
 
+#include <stdint.h>
+
+#include <array>
 #include <memory>
 #include <vector>
 
 #include "core/fpdfapi/font/cpdf_font.h"
-#include "core/fxcrt/cfx_maybe_owned.h"
+#include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
-enum CIDSet {
+enum CIDSet : uint8_t {
   CIDSET_UNKNOWN,
   CIDSET_GB1,
   CIDSET_CNS1,
@@ -25,18 +29,27 @@ enum CIDSet {
   CIDSET_NUM_SETS
 };
 
+struct CIDTransform {
+  uint16_t cid;
+  uint8_t a;
+  uint8_t b;
+  uint8_t c;
+  uint8_t d;
+  uint8_t e;
+  uint8_t f;
+};
+
 class CFX_CTTGSUBTable;
-class CPDF_Array;
 class CPDF_CID2UnicodeMap;
 class CPDF_CMap;
 class CPDF_StreamAcc;
 
-class CPDF_CIDFont : public CPDF_Font {
+class CPDF_CIDFont final : public CPDF_Font {
  public:
-  CPDF_CIDFont();
+  CONSTRUCT_VIA_MAKE_RETAIN;
   ~CPDF_CIDFont() override;
 
-  static FX_FLOAT CIDTransformToFloat(uint8_t ch);
+  static float CIDTransformToFloat(uint8_t ch);
 
   // CPDF_Font:
   bool IsCIDFont() const override;
@@ -45,48 +58,50 @@ class CPDF_CIDFont : public CPDF_Font {
   int GlyphFromCharCode(uint32_t charcode, bool* pVertGlyph) override;
   int GetCharWidthF(uint32_t charcode) override;
   FX_RECT GetCharBBox(uint32_t charcode) override;
-  uint32_t GetNextChar(const FX_CHAR* pString,
-                       int nStrLen,
-                       int& offset) const override;
-  int CountChar(const FX_CHAR* pString, int size) const override;
-  int AppendChar(FX_CHAR* str, uint32_t charcode) const override;
+  uint32_t GetNextChar(ByteStringView pString, size_t* pOffset) const override;
+  size_t CountChar(ByteStringView pString) const override;
+  void AppendChar(ByteString* str, uint32_t charcode) const override;
   bool IsVertWriting() const override;
   bool IsUnicodeCompatible() const override;
   bool Load() override;
-  CFX_WideString UnicodeFromCharCode(uint32_t charcode) const override;
-  uint32_t CharCodeFromUnicode(FX_WCHAR Unicode) const override;
+  WideString UnicodeFromCharCode(uint32_t charcode) const override;
+  uint32_t CharCodeFromUnicode(wchar_t Unicode) const override;
 
   uint16_t CIDFromCharCode(uint32_t charcode) const;
-  const uint8_t* GetCIDTransform(uint16_t CID) const;
-  short GetVertWidth(uint16_t CID) const;
-  void GetVertOrigin(uint16_t CID, short& vx, short& vy) const;
+  const CIDTransform* GetCIDTransform(uint16_t cid) const;
+  int16_t GetVertWidth(uint16_t cid) const;
+  CFX_Point16 GetVertOrigin(uint16_t cid) const;
   int GetCharSize(uint32_t charcode) const;
 
- protected:
+ private:
+  enum class CIDFontType : bool {
+    kType1,    // CIDFontType0
+    kTrueType  // CIDFontType2
+  };
+
+  CPDF_CIDFont(CPDF_Document* document, RetainPtr<CPDF_Dictionary> font_dict);
+
   void LoadGB2312();
   int GetGlyphIndex(uint32_t unicodeb, bool* pVertGlyph);
   int GetVerticalGlyph(int index, bool* pVertGlyph);
-  void LoadMetricsArray(CPDF_Array* pArray,
-                        std::vector<uint32_t>* result,
-                        int nElements);
   void LoadSubstFont();
-  FX_WCHAR GetUnicodeFromCharCode(uint32_t charcode) const;
+  wchar_t GetUnicodeFromCharCode(uint32_t charcode) const;
 
-  CFX_MaybeOwned<CPDF_CMap> m_pCMap;
-  CPDF_CID2UnicodeMap* m_pCID2UnicodeMap;
-  CIDSet m_Charset;
-  bool m_bType1;
-  bool m_bCIDIsGID;
-  uint16_t m_DefaultWidth;
-  std::unique_ptr<CPDF_StreamAcc> m_pStreamAcc;
-  bool m_bAnsiWidthsFixed;
-  FX_RECT m_CharBBox[256];
-  std::vector<uint32_t> m_WidthList;
-  short m_DefaultVY;
-  short m_DefaultW1;
-  std::vector<uint32_t> m_VertMetrics;
-  bool m_bAdobeCourierStd;
-  std::unique_ptr<CFX_CTTGSUBTable> m_pTTGSUBTable;
+  RetainPtr<const CPDF_CMap> cmap_;
+  UnownedPtr<const CPDF_CID2UnicodeMap> cid2unicode_map_;
+  RetainPtr<CPDF_StreamAcc> stream_acc_;
+  std::unique_ptr<CFX_CTTGSUBTable> ttg_subtable_;
+  CIDFontType font_type_ = CIDFontType::kTrueType;
+  bool cid_is_gid_ = false;
+  bool ansi_widths_fixed_ = false;
+  bool adobe_courier_std_ = false;
+  CIDSet charset_ = CIDSET_UNKNOWN;
+  int16_t default_width_ = 1000;
+  int16_t default_vy_ = 880;
+  int16_t default_w1_ = -1000;
+  std::vector<int> width_list_;
+  std::vector<int> vert_metrics_;
+  std::array<FX_RECT, 256> char_bbox_;
 };
 
 #endif  // CORE_FPDFAPI_FONT_CPDF_CIDFONT_H_

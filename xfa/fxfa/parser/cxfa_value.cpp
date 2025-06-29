@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,51 +6,89 @@
 
 #include "xfa/fxfa/parser/cxfa_value.h"
 
-#include "xfa/fxfa/parser/xfa_object.h"
+#include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/cjx_object.h"
+#include "xfa/fxfa/parser/cxfa_arc.h"
+#include "xfa/fxfa/parser/cxfa_document.h"
+#include "xfa/fxfa/parser/cxfa_exdata.h"
+#include "xfa/fxfa/parser/cxfa_image.h"
+#include "xfa/fxfa/parser/cxfa_line.h"
+#include "xfa/fxfa/parser/cxfa_rectangle.h"
 
-XFA_Element CXFA_Value::GetChildValueClassID() {
-  if (!m_pNode)
-    return XFA_Element::Unknown;
-  if (CXFA_Node* pNode = m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild))
-    return pNode->GetElementType();
-  return XFA_Element::Unknown;
+namespace {
+
+constexpr CXFA_Node::PropertyData kValuePropertyData[] = {
+    {XFA_Element::Arc, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Text, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Time, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::DateTime, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Image, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Decimal, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Boolean, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Integer, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::ExData, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Rectangle, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Date, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Float, 1, XFA_PropertyFlag::kOneOf},
+    {XFA_Element::Line, 1, XFA_PropertyFlag::kOneOf},
+};
+
+constexpr CXFA_Node::AttributeData kValueAttributeData[] = {
+    {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Relevant, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Override, XFA_AttributeType::Boolean, (void*)0},
+};
+
+}  // namespace
+
+CXFA_Value::CXFA_Value(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(doc,
+                packet,
+                {XFA_XDPPACKET::kTemplate, XFA_XDPPACKET::kForm},
+                XFA_ObjectType::Node,
+                XFA_Element::Value,
+                kValuePropertyData,
+                kValueAttributeData,
+                cppgc::MakeGarbageCollected<CJX_Node>(
+                    doc->GetHeap()->GetAllocationHandle(),
+                    this)) {}
+
+CXFA_Value::~CXFA_Value() = default;
+
+XFA_Element CXFA_Value::GetChildValueClassID() const {
+  CXFA_Node* pNode = GetFirstChild();
+  return pNode ? pNode->GetElementType() : XFA_Element::Unknown;
 }
 
-bool CXFA_Value::GetChildValueContent(CFX_WideString& wsContent) {
-  if (!m_pNode)
-    return false;
-  if (CXFA_Node* pNode = m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild))
-    return pNode->TryContent(wsContent);
-  return false;
+WideString CXFA_Value::GetChildValueContent() const {
+  CXFA_Node* pNode = GetFirstChild();
+  return pNode
+             ? pNode->JSObject()->TryContent(false, true).value_or(WideString())
+             : WideString();
 }
 
-CXFA_Arc CXFA_Value::GetArc() {
-  return CXFA_Arc(m_pNode ? m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild)
-                          : nullptr);
+CXFA_Arc* CXFA_Value::GetArcIfExists() const {
+  return CXFA_Arc::FromNode(GetFirstChild());
 }
 
-CXFA_Line CXFA_Value::GetLine() {
-  return CXFA_Line(m_pNode ? m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild)
-                           : nullptr);
+CXFA_Line* CXFA_Value::GetLineIfExists() const {
+  return CXFA_Line::FromNode(GetFirstChild());
 }
 
-CXFA_Rectangle CXFA_Value::GetRectangle() {
-  return CXFA_Rectangle(m_pNode ? m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild)
-                                : nullptr);
+CXFA_Rectangle* CXFA_Value::GetRectangleIfExists() const {
+  return CXFA_Rectangle::FromNode(GetFirstChild());
 }
 
-CXFA_Text CXFA_Value::GetText() {
-  return CXFA_Text(m_pNode ? m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild)
-                           : nullptr);
+CXFA_Text* CXFA_Value::GetTextIfExists() const {
+  return CXFA_Text::FromNode(GetFirstChild());
 }
 
-CXFA_ExData CXFA_Value::GetExData() {
-  return CXFA_ExData(m_pNode ? m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild)
-                             : nullptr);
+CXFA_ExData* CXFA_Value::GetExDataIfExists() const {
+  return CXFA_ExData::FromNode(GetFirstChild());
 }
 
-CXFA_Image CXFA_Value::GetImage() {
-  return CXFA_Image(
-      m_pNode ? (m_pNode->GetNodeItem(XFA_NODEITEM_FirstChild)) : nullptr,
-      true);
+CXFA_Image* CXFA_Value::GetImageIfExists() const {
+  return CXFA_Image::FromNode(GetFirstChild());
 }

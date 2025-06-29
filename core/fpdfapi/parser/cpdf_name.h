@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,37 +7,46 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_NAME_H_
 #define CORE_FPDFAPI_PARSER_CPDF_NAME_H_
 
-#include <memory>
-
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
 
-class CPDF_Name : public CPDF_Object {
+class CPDF_Name final : public CPDF_Object {
  public:
-  CPDF_Name(CFX_WeakPtr<CFX_ByteStringPool> pPool, const CFX_ByteString& str);
-  ~CPDF_Name() override;
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   // CPDF_Object:
   Type GetType() const override;
-  std::unique_ptr<CPDF_Object> Clone() const override;
-  CFX_ByteString GetString() const override;
-  CFX_WideString GetUnicodeText() const override;
-  void SetString(const CFX_ByteString& str) override;
-  bool IsName() const override;
-  CPDF_Name* AsName() override;
-  const CPDF_Name* AsName() const override;
+  RetainPtr<CPDF_Object> Clone() const override;
+  ByteString GetString() const override;
+  WideString GetUnicodeText() const override;
+  void SetString(const ByteString& str) override;
+  CPDF_Name* AsMutableName() override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
 
- protected:
-  CFX_ByteString m_Name;
+ private:
+  CPDF_Name(WeakPtr<ByteStringPool> pPool, const ByteString& str);
+  ~CPDF_Name() override;
+
+  ByteString name_;
 };
 
 inline CPDF_Name* ToName(CPDF_Object* obj) {
-  return obj ? obj->AsName() : nullptr;
+  return obj ? obj->AsMutableName() : nullptr;
 }
 
 inline const CPDF_Name* ToName(const CPDF_Object* obj) {
   return obj ? obj->AsName() : nullptr;
+}
+
+inline RetainPtr<const CPDF_Name> ToName(RetainPtr<CPDF_Object> obj) {
+  return RetainPtr<CPDF_Name>(ToName(obj.Get()));
+}
+
+inline RetainPtr<const CPDF_Name> ToName(RetainPtr<const CPDF_Object> obj) {
+  return RetainPtr<const CPDF_Name>(ToName(obj.Get()));
 }
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_NAME_H_

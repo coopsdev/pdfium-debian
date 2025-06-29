@@ -1,7 +1,10 @@
 Name: FreeType
 URL: http://www.freetype.org/
-Version: 2.6.1
+Version: VER-2-13-3-250
+Revision: 320b72a2955a312f2a392bede8d6af900aec924d
+CPEPrefix: cpe:/a:freetype:freetype:2.13.3
 Security Critical: yes
+Shipped: yes
 License: FreeType License (FTL)
 License File: FTL.TXT
 
@@ -10,25 +13,12 @@ FreeType library.
 
 Local Modifications:
 
+include/pstables.h: A copy of freetype/src/psnames/pstables.h.  This file is not
+part of the public Freetype API, but pdfium needs it.  Since it won't be
+available when building with the system Freetype, we provide it as a
+convenience. See https://gitlab.freedesktop.org/freetype/freetype/-/issues/731
+for the request to make this a public Freetype API.
+
 0000-include.patch: Modifications to configuration header files.
 
-include/freetype/ftchapers.h is not included.
-
-The following directories in src/ are not included from
-upstream FreeType as they are never used:
-
-autofit
-bdf
-bzip2
-cache
-gxvalid
-gzip
-Jamfile
-lzw
-otvalid
-pcf
-pfr
-tools
-type42
-winfonts
-
+Most of the updating can be automated will roll-freetype.sh.

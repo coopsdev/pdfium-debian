@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,83 +7,118 @@
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
-#include "third_party/base/logging.h"
+#include "core/fxcrt/check.h"
+
+namespace {
+
+const CPDF_Object* FilterInvalidObjNum(const CPDF_Object* obj) {
+  return obj && obj->GetObjNum() != CPDF_Object::kInvalidObjNum ? obj : nullptr;
+}
+
+}  // namespace
 
 CPDF_IndirectObjectHolder::CPDF_IndirectObjectHolder()
-    : m_LastObjNum(0),
-      m_pByteStringPool(pdfium::MakeUnique<CFX_ByteStringPool>()) {}
+    : byte_string_pool_(std::make_unique<ByteStringPool>()) {}
 
 CPDF_IndirectObjectHolder::~CPDF_IndirectObjectHolder() {
-  m_pByteStringPool.DeleteObject();  // Make weak.
+  byte_string_pool_.DeleteObject();  // Make weak.
 }
 
-CPDF_Object* CPDF_IndirectObjectHolder::GetIndirectObject(
+RetainPtr<const CPDF_Object> CPDF_IndirectObjectHolder::GetIndirectObject(
     uint32_t objnum) const {
-  auto it = m_IndirectObjs.find(objnum);
-  return it != m_IndirectObjs.end() ? it->second.get() : nullptr;
+  return pdfium::WrapRetain(GetIndirectObjectInternal(objnum));
 }
 
-CPDF_Object* CPDF_IndirectObjectHolder::GetOrParseIndirectObject(
+RetainPtr<CPDF_Object> CPDF_IndirectObjectHolder::GetMutableIndirectObject(
     uint32_t objnum) {
-  if (objnum == 0)
-    return nullptr;
-
-  CPDF_Object* pObj = GetIndirectObject(objnum);
-  if (pObj)
-    return pObj->GetObjNum() != CPDF_Object::kInvalidObjNum ? pObj : nullptr;
-
-  std::unique_ptr<CPDF_Object> pNewObj = ParseIndirectObject(objnum);
-  if (!pNewObj)
-    return nullptr;
-
-  pNewObj->m_ObjNum = objnum;
-  m_LastObjNum = std::max(m_LastObjNum, objnum);
-  m_IndirectObjs[objnum] = std::move(pNewObj);
-  return m_IndirectObjs[objnum].get();
+  return pdfium::WrapRetain(
+      const_cast<CPDF_Object*>(GetIndirectObjectInternal(objnum)));
 }
 
-std::unique_ptr<CPDF_Object> CPDF_IndirectObjectHolder::ParseIndirectObject(
+const CPDF_Object* CPDF_IndirectObjectHolder::GetIndirectObjectInternal(
+    uint32_t objnum) const {
+  auto it = indirect_objs_.find(objnum);
+  if (it == indirect_objs_.end()) {
+    return nullptr;
+  }
+
+  return FilterInvalidObjNum(it->second.Get());
+}
+
+RetainPtr<CPDF_Object> CPDF_IndirectObjectHolder::GetOrParseIndirectObject(
+    uint32_t objnum) {
+  return pdfium::WrapRetain(GetOrParseIndirectObjectInternal(objnum));
+}
+
+CPDF_Object* CPDF_IndirectObjectHolder::GetOrParseIndirectObjectInternal(
+    uint32_t objnum) {
+  if (objnum == 0 || objnum == CPDF_Object::kInvalidObjNum) {
+    return nullptr;
+  }
+
+  // Add item anyway to prevent recursively parsing of same object.
+  auto insert_result = indirect_objs_.insert(std::make_pair(objnum, nullptr));
+  if (!insert_result.second) {
+    return const_cast<CPDF_Object*>(
+        FilterInvalidObjNum(insert_result.first->second.Get()));
+  }
+  RetainPtr<CPDF_Object> pNewObj = ParseIndirectObject(objnum);
+  if (!pNewObj) {
+    indirect_objs_.erase(insert_result.first);
+    return nullptr;
+  }
+
+  pNewObj->SetObjNum(objnum);
+  last_obj_num_ = std::max(last_obj_num_, objnum);
+
+  CPDF_Object* result = pNewObj.Get();
+  insert_result.first->second = std::move(pNewObj);
+  return result;
+}
+
+RetainPtr<CPDF_Object> CPDF_IndirectObjectHolder::ParseIndirectObject(
     uint32_t objnum) {
   return nullptr;
 }
 
-CPDF_Object* CPDF_IndirectObjectHolder::AddIndirectObject(
-    std::unique_ptr<CPDF_Object> pObj) {
-  CHECK(!pObj->m_ObjNum);
-  CPDF_Object* pUnowned = pObj.get();
-  pObj->m_ObjNum = ++m_LastObjNum;
-  if (m_IndirectObjs[m_LastObjNum])
-    m_OrphanObjs.push_back(std::move(m_IndirectObjs[m_LastObjNum]));
-
-  m_IndirectObjs[m_LastObjNum] = std::move(pObj);
-  return pUnowned;
+uint32_t CPDF_IndirectObjectHolder::AddIndirectObject(
+    RetainPtr<CPDF_Object> pObj) {
+  CHECK(!pObj->GetObjNum());
+  pObj->SetObjNum(++last_obj_num_);
+  indirect_objs_[last_obj_num_] = std::move(pObj);
+  return last_obj_num_;
 }
 
 bool CPDF_IndirectObjectHolder::ReplaceIndirectObjectIfHigherGeneration(
     uint32_t objnum,
-    std::unique_ptr<CPDF_Object> pObj) {
-  ASSERT(objnum);
-  if (!pObj)
+    RetainPtr<CPDF_Object> pObj) {
+  DCHECK(objnum);
+  if (!pObj || objnum == CPDF_Object::kInvalidObjNum) {
     return false;
+  }
 
-  CPDF_Object* pOldObj = GetIndirectObject(objnum);
-  if (pOldObj && pObj->GetGenNum() <= pOldObj->GetGenNum())
+  auto& obj_holder = indirect_objs_[objnum];
+  const CPDF_Object* old_object = FilterInvalidObjNum(obj_holder.Get());
+  if (old_object && pObj->GetGenNum() <= old_object->GetGenNum()) {
     return false;
+  }
 
-  pObj->m_ObjNum = objnum;
-  m_IndirectObjs[objnum] = std::move(pObj);
-  m_LastObjNum = std::max(m_LastObjNum, objnum);
+  pObj->SetObjNum(objnum);
+  obj_holder = std::move(pObj);
+  last_obj_num_ = std::max(last_obj_num_, objnum);
   return true;
 }
 
 void CPDF_IndirectObjectHolder::DeleteIndirectObject(uint32_t objnum) {
-  CPDF_Object* pObj = GetIndirectObject(objnum);
-  if (!pObj || pObj->GetObjNum() == CPDF_Object::kInvalidObjNum)
+  auto it = indirect_objs_.find(objnum);
+  if (it == indirect_objs_.end() || !FilterInvalidObjNum(it->second.Get())) {
     return;
+  }
 
-  m_IndirectObjs.erase(objnum);
+  indirect_objs_.erase(it);
 }

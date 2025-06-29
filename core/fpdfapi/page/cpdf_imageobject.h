@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,16 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_IMAGEOBJECT_H_
 #define CORE_FPDFAPI_PAGE_CPDF_IMAGEOBJECT_H_
 
-#include <memory>
-
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
 
+class CFX_DIBitmap;
 class CPDF_Image;
 
-class CPDF_ImageObject : public CPDF_PageObject {
+class CPDF_ImageObject final : public CPDF_PageObject {
  public:
+  explicit CPDF_ImageObject(int32_t content_stream);
   CPDF_ImageObject();
   ~CPDF_ImageObject() override;
 
@@ -27,19 +28,20 @@ class CPDF_ImageObject : public CPDF_PageObject {
   const CPDF_ImageObject* AsImage() const override;
 
   void CalcBoundingBox();
-  CPDF_Image* GetImage() const { return m_pImage; }
-  void SetOwnedImage(std::unique_ptr<CPDF_Image> pImage);
-  void SetUnownedImage(CPDF_Image* pImage);
+  void SetImage(RetainPtr<CPDF_Image> pImage);
+  RetainPtr<CPDF_Image> GetImage() const;
+  RetainPtr<CFX_DIBitmap> GetIndependentBitmap() const;
 
-  void set_matrix(const CFX_Matrix& matrix) { m_Matrix = matrix; }
-  const CFX_Matrix& matrix() const { return m_Matrix; }
+  void SetInitialImageMatrix(const CFX_Matrix& matrix);
+
+  void SetImageMatrix(const CFX_Matrix& matrix);
+  const CFX_Matrix& matrix() const { return matrix_; }
 
  private:
-  void Release();
+  void MaybePurgeCache();
 
-  CFX_Matrix m_Matrix;
-  CPDF_Image* m_pImage;
-  bool m_pImageOwned;
+  CFX_Matrix matrix_;
+  RetainPtr<CPDF_Image> image_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_IMAGEOBJECT_H_

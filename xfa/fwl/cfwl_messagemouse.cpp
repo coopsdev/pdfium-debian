@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,17 @@
 
 #include "xfa/fwl/cfwl_messagemouse.h"
 
-#include <memory>
+namespace pdfium {
 
-#include "third_party/base/ptr_util.h"
+CFWL_MessageMouse::CFWL_MessageMouse(CFWL_Widget* pDstTarget,
+                                     MouseCommand cmd,
+                                     Mask<XFA_FWL_KeyFlag> flags,
+                                     CFX_PointF pos)
+    : CFWL_Message(CFWL_Message::Type::kMouse, pDstTarget),
+      cmd_(cmd),
+      flags_(flags),
+      pos_(pos) {}
 
-CFWL_MessageMouse::CFWL_MessageMouse(CFWL_Widget* pSrcTarget,
-                                     CFWL_Widget* pDstTarget)
-    : CFWL_Message(CFWL_Message::Type::Mouse, pSrcTarget, pDstTarget) {}
+CFWL_MessageMouse::~CFWL_MessageMouse() = default;
 
-CFWL_MessageMouse::CFWL_MessageMouse(const CFWL_MessageMouse& other) = default;
-
-CFWL_MessageMouse::~CFWL_MessageMouse() {}
-
-std::unique_ptr<CFWL_Message> CFWL_MessageMouse::Clone() {
-  return pdfium::MakeUnique<CFWL_MessageMouse>(*this);
-}
+}  // namespace pdfium

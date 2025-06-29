@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,15 @@
 #ifndef XFA_FXFA_PARSER_CXFA_ASSIST_H_
 #define XFA_FXFA_PARSER_CXFA_ASSIST_H_
 
-#include "xfa/fxfa/parser/cxfa_data.h"
-#include "xfa/fxfa/parser/cxfa_tooltip.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Assist : public CXFA_Data {
+class CXFA_Assist final : public CXFA_Node {
  public:
-  explicit CXFA_Assist(CXFA_Node* pNode);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Assist() override;
 
-  CXFA_ToolTip GetToolTip();
+ private:
+  CXFA_Assist(CXFA_Document* doc, XFA_PacketType packet);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_ASSIST_H_

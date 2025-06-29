@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,21 @@
 #ifndef XFA_FXFA_PARSER_CXFA_SUBMIT_H_
 #define XFA_FXFA_PARSER_CXFA_SUBMIT_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "core/fxcrt/widestring.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Submit : public CXFA_Data {
+class CXFA_Submit final : public CXFA_Node {
  public:
-  explicit CXFA_Submit(CXFA_Node* pNode);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Submit() override;
 
   bool IsSubmitEmbedPDF();
-  int32_t GetSubmitFormat();
-  void GetSubmitTarget(CFX_WideStringC& wsTarget);
-  void GetSubmitXDPContent(CFX_WideStringC& wsContent);
+  XFA_AttributeValue GetSubmitFormat();
+  WideString GetSubmitTarget();
+  WideString GetSubmitXDPContent();
+
+ private:
+  CXFA_Submit(CXFA_Document* doc, XFA_PacketType packet);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_SUBMIT_H_

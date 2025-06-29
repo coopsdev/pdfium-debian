@@ -7,23 +7,17 @@
 #ifndef _TIFFCONF_
 #define _TIFFCONF_
 
-#include "core/fxcrt/fx_system.h"
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "build/build_config.h"
 
 //NOTE: The tiff codec requires an ANSI C compiler environment for building and 
-//		presumes an ANSI C environment for use.
+//    presumes an ANSI C environment for use.
 
-/* Define to 1 if you have the <fcntl.h> header file. */
-/* Define to 1 if you have the <sys/types.h> header file. */
-#if _FX_OS_ == _FX_WIN32_MOBILE_
-# define O_RDONLY       0x0000  /* open for reading only */
-# define O_WRONLY       0x0001  /* open for writing only */
-# define O_RDWR         0x0002  /* open for reading and writing */
-# define O_CREAT        0x0100  /* create and open file */
-# define O_TRUNC        0x0200  /* open and truncate */
-#else
 # define HAVE_SYS_TYPES_H 1
 # define HAVE_FCNTL_H 1
-#endif
 
 /* Compatibility stuff. */
 
@@ -35,28 +29,34 @@
 #define HAVE_IEEEFP 1
 
 /* Define to 1 if you have the <string.h> header file. */
-//#define HAVE_STRING_H 1
-//fx_system.h already include the string.h in ANSIC
+#define HAVE_STRING_H 1
+
+/* Define to 1 if you have snprintf(). */
+#define HAVE_SNPRINTF 1
 
 /* Define to 1 if you have the <search.h> header file. */
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER >= 1900
+#if BUILDFLAG(IS_WIN)
 // search.h is always available in VS 2015 and above, and may be
 // available in earlier versions.
 #define HAVE_SEARCH_H 1
 #endif
 
-/* The size of a `int', as computed by sizeof. */
-/* According typedef int	int32_t; in the fx_system.h*/
+/* The size of a `int'. */
+/* According typedef int  int32_t; in the fx_system.h*/
 #define SIZEOF_INT 4
 
-/* Sunliang.Liu 20110325. We should config the correct long size for tif 
-   fax4decode optimize in tif_fax3.c  -- Linux64 decode issue. 
-   TESTDOC: Bug #23661 - z1.tif. */
-#if _FX_CPU_ == _FX_WIN64_ || _FX_CPU_ == _FX_X64_ || _FX_CPU_ == _FX_IA64_
+#if defined(ARCH_CPU_64_BITS)
 /* The size of `unsigned long', as computed by sizeof. */
 #define SIZEOF_UNSIGNED_LONG 8
 #else
 #define SIZEOF_UNSIGNED_LONG 4
+#endif
+
+/* The size of void*. */
+#ifdef __LP64__
+#define SIZEOF_VOIDP 8
+#else
+#define SIZEOF_VOIDP 4
 #endif
 
 /* Signed 8-bit type */
@@ -83,7 +83,7 @@
 /* Unsigned 32-bit type formatter */
 #define TIFF_UINT32_FORMAT "%u"
 
-#ifdef _MSC_VER		// windows
+#ifdef _MSC_VER   // windows
 
 /* Signed 64-bit type formatter */
 #define TIFF_INT64_FORMAT "%I64d"
@@ -97,9 +97,9 @@
 /* Unsigned 64-bit type */
 #define TIFF_UINT64_T unsigned __int64
 
-#else						// linux/unix
+#else           // linux/unix
 
-#if 0 //_FX_CPU_ == _FX_X64_	// linux/unix 64
+#if defined(ARCH_CPU_64_BITS)
 
 /* Signed 64-bit type formatter */
 #define TIFF_INT64_FORMAT "%ld"
@@ -110,7 +110,10 @@
 /* Signed 64-bit type */
 #define TIFF_INT64_T signed long
 
-#else						// linux/unix 32
+/* Unsigned 64-bit type */
+#define TIFF_UINT64_T unsigned long
+
+#else           // linux/unix 32
 
 /* Signed 64-bit type formatter */
 #define TIFF_INT64_FORMAT "%lld"
@@ -121,34 +124,25 @@
 /* Signed 64-bit type */
 #define TIFF_INT64_T signed long long
 
-#endif						// end _FX_CPU_
-
 /* Unsigned 64-bit type */
 #define TIFF_UINT64_T unsigned long long
 
-#endif
-
-
-/* Signed size type */
-#ifdef _MSC_VER
-
-#if defined(_WIN64)
-#define TIFF_SSIZE_T signed __int64
-#else
-#define TIFF_SSIZE_T signed int
-#endif
-
-#else
-
-#define TIFF_SSIZE_T signed long
+#endif  // define(ARCH_CPU_64_BITS)
 
 #endif
 
-/* Signed size type formatter */
-#if defined(_WIN64)
-#define TIFF_SSIZE_FORMAT "%I64d"
+
+/* Signed size type, type formatter, and size of size_t */
+#if defined(ARCH_CPU_64_BITS)
+#define TIFF_SSIZE_T int64_t
+#define TIFF_SSIZE_FORMAT PRId64
+#define TIFF_SSIZE_T_MAX INT64_MAX
+#define SIZEOF_SIZE_T 8
 #else
-#define TIFF_SSIZE_FORMAT "%ld"
+#define TIFF_SSIZE_T int32_t
+#define TIFF_SSIZE_FORMAT PRId32
+#define TIFF_SSIZE_T_MAX INT32_MAX
+#define SIZEOF_SIZE_T 4
 #endif
 
 /* Pointer difference type */
@@ -181,11 +175,7 @@
 
 /* Native cpu byte order: 1 if big-endian (Motorola) or 0 if little-endian
    (Intel) */
-#if _FX_ENDIAN_ == _FX_BIG_ENDIAN_
-# define HOST_BIGENDIAN 1
-#else
-# define HOST_BIGENDIAN 0
-#endif
+#define HOST_BIGENDIAN 0
 
 /* Support CCITT Group 3 & 4 algorithms */
 #define CCITT_SUPPORT 1
@@ -204,7 +194,7 @@
 
 /* Support Old JPEG compresson (read contrib/ojpeg/README first! Compilation
    fails with unpatched IJG JPEG library) */
-#define  OJPEG_SUPPORT	1
+/* #undef OJPEG_SUPPORT */
 
 /* Support Macintosh PackBits algorithm */
 #define PACKBITS_SUPPORT 1
@@ -216,10 +206,10 @@
 #define THUNDER_SUPPORT 1
 
 /* Support Deflate compression */
-#define ZIP_SUPPORT 1
+/* #undef ZIP_SUPPORT */
 
 /* Support strip chopping (whether or not to convert single-strip uncompressed
-   images to mutiple strips of ~8Kb to reduce memory usage) */
+   images to multiple strips of ~8Kb to reduce memory usage) */
 #define STRIPCHOP_DEFAULT TIFF_STRIPCHOP
 
 /* Enable SubIFD tag (330) support */

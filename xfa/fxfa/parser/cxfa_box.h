@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,48 +7,67 @@
 #ifndef XFA_FXFA_PARSER_CXFA_BOX_H_
 #define XFA_FXFA_PARSER_CXFA_BOX_H_
 
+#include <tuple>
 #include <vector>
 
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
-#include "xfa/fxfa/parser/cxfa_edge.h"
-#include "xfa/fxfa/parser/cxfa_fill.h"
-#include "xfa/fxfa/parser/cxfa_margin.h"
+#include "core/fxcrt/fx_coordinates.h"
+#include "xfa/fgas/graphics/cfgas_gepath.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
+class CFGAS_GEGraphics;
+class CXFA_Edge;
+class CXFA_Fill;
+class CXFA_Stroke;
 
-class CXFA_Box : public CXFA_Data {
+class CXFA_Box : public CXFA_Node {
  public:
-  explicit CXFA_Box(CXFA_Node* pNode) : CXFA_Data(pNode) {}
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Box() override;
 
-  bool IsArc() const { return GetElementType() == XFA_Element::Arc; }
-  bool IsBorder() const { return GetElementType() == XFA_Element::Border; }
-  bool IsRectangle() const {
-    return GetElementType() == XFA_Element::Rectangle;
-  }
-  int32_t GetHand() const;
-  int32_t GetPresence() const;
-  int32_t CountEdges() const;
-  CXFA_Edge GetEdge(int32_t nIndex = 0) const;
-  void GetStrokes(std::vector<CXFA_Stroke>* strokes) const;
-  bool IsCircular() const;
-  bool GetStartAngle(FX_FLOAT& fStartAngle) const;
-  FX_FLOAT GetStartAngle() const {
-    FX_FLOAT fStartAngle;
-    GetStartAngle(fStartAngle);
-    return fStartAngle;
-  }
+  XFA_AttributeValue GetPresence();
+  std::tuple<XFA_AttributeValue, bool, float> Get3DStyle();
 
-  bool GetSweepAngle(FX_FLOAT& fSweepAngle) const;
-  FX_FLOAT GetSweepAngle() const {
-    FX_FLOAT fSweepAngle;
-    GetSweepAngle(fSweepAngle);
-    return fSweepAngle;
-  }
+  size_t CountEdges();
+  CXFA_Edge* GetEdgeIfExists(size_t nIndex);
+  CXFA_Fill* GetOrCreateFillIfPossible();
 
-  CXFA_Fill GetFill(bool bModified = false) const;
-  CXFA_Margin GetMargin() const;
-  int32_t Get3DStyle(bool& bVisible, FX_FLOAT& fThickness) const;
+  std::vector<CXFA_Stroke*> GetStrokes();
+
+  void Draw(CFGAS_GEGraphics* pGS,
+            const CFX_RectF& rtWidget,
+            const CFX_Matrix& matrix,
+            bool forceRound);
+
+ protected:
+  CXFA_Box(CXFA_Document* pDoc,
+           XFA_PacketType ePacket,
+           Mask<XFA_XDPPACKET> validPackets,
+           XFA_ObjectType oType,
+           XFA_Element eType,
+           pdfium::span<const PropertyData> properties,
+           pdfium::span<const AttributeData> attributes,
+           CJX_Object* js_node);
+
+  XFA_AttributeValue GetHand();
+
+ private:
+  bool IsCircular();
+  std::optional<int32_t> GetStartAngle();
+  std::optional<int32_t> GetSweepAngle();
+
+  std::vector<CXFA_Stroke*> GetStrokesInternal(bool bNull);
+  void DrawFill(const std::vector<CXFA_Stroke*>& strokes,
+                CFGAS_GEGraphics* pGS,
+                CFX_RectF rtWidget,
+                const CFX_Matrix& matrix,
+                bool forceRound);
+  void StrokeArcOrRounded(CFGAS_GEGraphics* pGS,
+                          CFX_RectF rtWidget,
+                          const CFX_Matrix& matrix,
+                          bool forceRound);
+  void GetPathArcOrRounded(CFX_RectF rtDraw,
+                           bool forceRound,
+                           CFGAS_GEPath* fillPath);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_BOX_H_

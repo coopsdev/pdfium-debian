@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,14 @@
 #ifndef XFA_FXFA_PARSER_CSCRIPT_LOGPSEUDOMODEL_H_
 #define XFA_FXFA_PARSER_CSCRIPT_LOGPSEUDOMODEL_H_
 
-#include "fxjs/cfxjse_arguments.h"
-#include "xfa/fxfa/parser/xfa_object.h"
+#include "xfa/fxfa/parser/cxfa_object.h"
 
-class CScript_LogPseudoModel : public CXFA_Object {
+class CXFA_Document;
+
+class CScript_LogPseudoModel final : public CXFA_Object {
  public:
-  explicit CScript_LogPseudoModel(CXFA_Document* pDocument);
+  explicit CScript_LogPseudoModel(CXFA_Document* document);
   ~CScript_LogPseudoModel() override;
-
-  void Message(CFXJSE_Arguments* pArguments);
-  void TraceEnabled(CFXJSE_Arguments* pArguments);
-  void TraceActivate(CFXJSE_Arguments* pArguments);
-  void TraceDeactivate(CFXJSE_Arguments* pArguments);
-  void Trace(CFXJSE_Arguments* pArguments);
 };
 
 #endif  // XFA_FXFA_PARSER_CSCRIPT_LOGPSEUDOMODEL_H_

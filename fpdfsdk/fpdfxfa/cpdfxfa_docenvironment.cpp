@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,27 @@
 
 #include "fpdfsdk/fpdfxfa/cpdfxfa_docenvironment.h"
 
-#include <memory>
+#include <utility>
 
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
+#include "core/fxcrt/check.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_interform.h"
+#include "fpdfsdk/cpdfsdk_helpers.h"
+#include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_page.h"
-#include "fpdfsdk/javascript/ijs_runtime.h"
-#include "xfa/fxfa/xfa_ffdocview.h"
-#include "xfa/fxfa/xfa_ffwidget.h"
-#include "xfa/fxfa/xfa_ffwidgethandler.h"
+#include "xfa/fxfa/cxfa_ffdocview.h"
+#include "xfa/fxfa/cxfa_ffwidget.h"
+#include "xfa/fxfa/cxfa_ffwidgethandler.h"
+#include "xfa/fxfa/cxfa_readynodeiterator.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
+#include "xfa/fxfa/parser/cxfa_submit.h"
 
 #define IDS_XFA_Validate_Input                                          \
   "At least one required field was empty. Please fill in the required " \
@@ -37,182 +43,224 @@
 #define FXFA_PDF 0x10000000
 #define FXFA_XFA_ALL 0x01111111
 
+// Although there isn't direct casting between these types at present,
+// keep the internal and exernal types in sync.
+static_assert(FXFA_PAGEVIEWEVENT_POSTADDED ==
+                  static_cast<int>(CXFA_FFDoc::PageViewEvent::kPostAdded),
+              "kPostAdded mismatch");
+static_assert(FXFA_PAGEVIEWEVENT_POSTREMOVED ==
+                  static_cast<int>(CXFA_FFDoc::PageViewEvent::kPostRemoved),
+              "kPostRemoved mismatch");
+
 CPDFXFA_DocEnvironment::CPDFXFA_DocEnvironment(CPDFXFA_Context* pContext)
-    : m_pContext(pContext), m_pJSEventContext(nullptr) {
-  ASSERT(m_pContext);
+    : context_(pContext) {
+  DCHECK(context_);
 }
 
-CPDFXFA_DocEnvironment::~CPDFXFA_DocEnvironment() {
-  if (m_pJSEventContext && m_pContext->GetFormFillEnv()) {
-    m_pContext->GetFormFillEnv()->GetJSRuntime()->ReleaseEventContext(
-        m_pJSEventContext);
+CPDFXFA_DocEnvironment::~CPDFXFA_DocEnvironment() = default;
+
+void CPDFXFA_DocEnvironment::SetChangeMark(CXFA_FFDoc* hDoc) {
+  if (hDoc == context_->GetXFADoc() && context_->GetFormFillEnv()) {
+    context_->GetFormFillEnv()->SetChangeMark();
   }
 }
 
-void CPDFXFA_DocEnvironment::SetChangeMark(CXFA_FFDoc* hDoc) {
-  if (hDoc == m_pContext->GetXFADoc() && m_pContext->GetFormFillEnv())
-    m_pContext->GetFormFillEnv()->SetChangeMark();
-}
-
 void CPDFXFA_DocEnvironment::InvalidateRect(CXFA_FFPageView* pPageView,
-                                            const CFX_RectF& rt,
-                                            uint32_t dwFlags /* = 0 */) {
-  if (!m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+                                            const CFX_RectF& rt) {
+  if (!context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return;
+  }
 
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA)
+  if (context_->GetFormType() != FormType::kXFAFull) {
     return;
+  }
 
-  CPDFXFA_Page* pPage = m_pContext->GetXFAPage(pPageView);
-  if (!pPage)
+  RetainPtr<CPDFXFA_Page> pPage = context_->GetXFAPage(pPageView);
+  if (!pPage) {
     return;
+  }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
     return;
+  }
 
-  pFormFillEnv->Invalidate(static_cast<FPDF_PAGE>(pPage),
-                           CFX_FloatRect::FromCFXRectF(rt).ToFxRect());
+  pFormFillEnv->Invalidate(pPage.Get(), rt.ToFloatRect().ToFxRect());
 }
 
 void CPDFXFA_DocEnvironment::DisplayCaret(CXFA_FFWidget* hWidget,
                                           bool bVisible,
                                           const CFX_RectF* pRtAnchor) {
-  if (!hWidget || !pRtAnchor || !m_pContext->GetXFADoc() ||
-      !m_pContext->GetFormFillEnv() || !m_pContext->GetXFADocView())
+  if (!hWidget || !pRtAnchor || !context_->GetXFADoc() ||
+      !context_->GetFormFillEnv() || !context_->GetXFADocView()) {
     return;
+  }
 
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA)
+  if (context_->GetFormType() != FormType::kXFAFull) {
     return;
+  }
 
   CXFA_FFWidgetHandler* pWidgetHandler =
-      m_pContext->GetXFADocView()->GetWidgetHandler();
-  if (!pWidgetHandler)
+      context_->GetXFADocView()->GetWidgetHandler();
+  if (!pWidgetHandler) {
     return;
+  }
 
   CXFA_FFPageView* pPageView = hWidget->GetPageView();
-  if (!pPageView)
+  if (!pPageView) {
     return;
+  }
 
-  CPDFXFA_Page* pPage = m_pContext->GetXFAPage(pPageView);
-  if (!pPage)
+  RetainPtr<CPDFXFA_Page> pPage = context_->GetXFAPage(pPageView);
+  if (!pPage) {
     return;
+  }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
     return;
+  }
 
-  CFX_FloatRect rcCaret = CFX_FloatRect::FromCFXRectF(*pRtAnchor);
-  pFormFillEnv->DisplayCaret((FPDF_PAGE)pPage, bVisible, rcCaret.left,
-                             rcCaret.top, rcCaret.right, rcCaret.bottom);
+  CFX_FloatRect rcCaret = pRtAnchor->ToFloatRect();
+  pFormFillEnv->DisplayCaret(pPage.Get(), bVisible, rcCaret.left, rcCaret.top,
+                             rcCaret.right, rcCaret.bottom);
 }
 
 bool CPDFXFA_DocEnvironment::GetPopupPos(CXFA_FFWidget* hWidget,
-                                         FX_FLOAT fMinPopup,
-                                         FX_FLOAT fMaxPopup,
+                                         float fMinPopup,
+                                         float fMaxPopup,
                                          const CFX_RectF& rtAnchor,
-                                         CFX_RectF& rtPopup) {
-  if (!hWidget)
+                                         CFX_RectF* pPopupRect) {
+  if (!hWidget) {
     return false;
+  }
 
   CXFA_FFPageView* pXFAPageView = hWidget->GetPageView();
-  if (!pXFAPageView)
+  if (!pXFAPageView) {
     return false;
+  }
 
-  CPDFXFA_Page* pPage = m_pContext->GetXFAPage(pXFAPageView);
-  if (!pPage)
+  RetainPtr<CPDFXFA_Page> pPage = context_->GetXFAPage(pXFAPageView);
+  if (!pPage) {
     return false;
+  }
 
-  CXFA_WidgetAcc* pWidgetAcc = hWidget->GetDataAcc();
-  int nRotate = pWidgetAcc->GetRotate();
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
     return false;
+  }
 
-  FS_RECTF pageViewRect = {0.0f, 0.0f, 0.0f, 0.0f};
-  pFormFillEnv->GetPageViewRect(pPage, pageViewRect);
+  FS_RECTF page_view_rect = pFormFillEnv->GetPageViewRect(pPage.Get());
+  int nRotate = hWidget->GetNode()->GetRotate();
 
-  int t1;
-  int t2;
-  CFX_FloatRect rcAnchor = CFX_FloatRect::FromCFXRectF(rtAnchor);
+  int space_available_below_anchor;
+  int space_available_above_anchor;
   switch (nRotate) {
+    case 0:
+    default: {
+      space_available_below_anchor =
+          static_cast<int>(page_view_rect.bottom - rtAnchor.bottom());
+      space_available_above_anchor =
+          static_cast<int>(rtAnchor.top - page_view_rect.top);
+
+      if (rtAnchor.left < page_view_rect.left) {
+        pPopupRect->left += page_view_rect.left - rtAnchor.left;
+      }
+      if (rtAnchor.right() > page_view_rect.right) {
+        pPopupRect->left -= rtAnchor.right() - page_view_rect.right;
+      }
+      break;
+    }
     case 90: {
-      t1 = (int)(pageViewRect.right - rcAnchor.right);
-      t2 = (int)(rcAnchor.left - pageViewRect.left);
-      if (rcAnchor.bottom < pageViewRect.bottom)
-        rtPopup.left += rcAnchor.bottom - pageViewRect.bottom;
+      space_available_below_anchor =
+          static_cast<int>(page_view_rect.right - rtAnchor.right());
+      space_available_above_anchor =
+          static_cast<int>(rtAnchor.left - page_view_rect.left);
+
+      if (rtAnchor.bottom() > page_view_rect.bottom) {
+        pPopupRect->left += rtAnchor.bottom() - page_view_rect.bottom;
+      }
+      if (rtAnchor.top < page_view_rect.top) {
+        pPopupRect->left -= page_view_rect.top - rtAnchor.top;
+      }
       break;
     }
     case 180: {
-      t2 = (int)(pageViewRect.top - rcAnchor.top);
-      t1 = (int)(rcAnchor.bottom - pageViewRect.bottom);
-      if (rcAnchor.left < pageViewRect.left)
-        rtPopup.left += rcAnchor.left - pageViewRect.left;
+      space_available_below_anchor =
+          static_cast<int>(rtAnchor.top - page_view_rect.top);
+      space_available_above_anchor =
+          static_cast<int>(page_view_rect.bottom - rtAnchor.bottom());
+
+      if (rtAnchor.right() > page_view_rect.right) {
+        pPopupRect->left += rtAnchor.right() - page_view_rect.right;
+      }
+      if (rtAnchor.left < page_view_rect.left) {
+        pPopupRect->left -= page_view_rect.left - rtAnchor.left;
+      }
       break;
     }
     case 270: {
-      t1 = (int)(rcAnchor.left - pageViewRect.left);
-      t2 = (int)(pageViewRect.right - rcAnchor.right);
-      if (rcAnchor.top > pageViewRect.top)
-        rtPopup.left -= rcAnchor.top - pageViewRect.top;
-      break;
-    }
-    case 0:
-    default: {
-      t1 = (int)(pageViewRect.top - rcAnchor.top);
-      t2 = (int)(rcAnchor.bottom - pageViewRect.bottom);
-      if (rcAnchor.right > pageViewRect.right)
-        rtPopup.left -= rcAnchor.right - pageViewRect.right;
+      space_available_below_anchor =
+          static_cast<int>(rtAnchor.left - page_view_rect.left);
+      space_available_above_anchor =
+          static_cast<int>(page_view_rect.right - rtAnchor.right());
+
+      if (rtAnchor.top < page_view_rect.top) {
+        pPopupRect->left += page_view_rect.top - rtAnchor.top;
+      }
+      if (rtAnchor.bottom() > page_view_rect.bottom) {
+        pPopupRect->left -= rtAnchor.bottom() - page_view_rect.bottom;
+      }
       break;
     }
   }
 
-  int t;
-  uint32_t dwPos;
-  if (t1 <= 0 && t2 <= 0)
+  // If there is no space on either side, the popup can't be rendered.
+  if (space_available_below_anchor <= 0 && space_available_above_anchor <= 0) {
     return false;
-  if (t1 <= 0) {
-    t = t2;
-    dwPos = 1;
-  } else if (t2 <= 0) {
-    t = t1;
-    dwPos = 0;
-  } else if (t1 > t2) {
-    t = t1;
-    dwPos = 0;
-  } else {
-    t = t2;
-    dwPos = 1;
   }
 
-  FX_FLOAT fPopupHeight;
-  if (t < fMinPopup)
-    fPopupHeight = fMinPopup;
-  else if (t > fMaxPopup)
-    fPopupHeight = fMaxPopup;
-  else
-    fPopupHeight = static_cast<FX_FLOAT>(t);
+  // Determine whether to draw above or below the anchor.
+  bool draw_below_anchor;
+  if (space_available_below_anchor <= 0) {
+    draw_below_anchor = false;
+  } else if (space_available_above_anchor <= 0) {
+    draw_below_anchor = true;
+  } else if (space_available_below_anchor > space_available_above_anchor) {
+    draw_below_anchor = true;
+  } else {
+    draw_below_anchor = false;
+  }
+
+  int space_available = (draw_below_anchor ? space_available_below_anchor
+                                           : space_available_above_anchor);
+
+  // Set the popup height and y position according to what was decided above.
+  float popup_height;
+  if (space_available < fMinPopup) {
+    popup_height = fMinPopup;
+  } else if (space_available > fMaxPopup) {
+    popup_height = fMaxPopup;
+  } else {
+    popup_height = static_cast<float>(space_available);
+  }
 
   switch (nRotate) {
     case 0:
     case 180: {
-      if (dwPos == 0) {
-        rtPopup.top = rtAnchor.height;
-        rtPopup.height = fPopupHeight;
+      if (draw_below_anchor) {
+        pPopupRect->top = rtAnchor.height;
       } else {
-        rtPopup.top = -fPopupHeight;
-        rtPopup.height = fPopupHeight;
+        pPopupRect->top = -popup_height;
       }
       break;
     }
     case 90:
     case 270: {
-      if (dwPos == 0) {
-        rtPopup.top = rtAnchor.width;
-        rtPopup.height = fPopupHeight;
+      if (draw_below_anchor) {
+        pPopupRect->top = rtAnchor.width;
       } else {
-        rtPopup.top = -fPopupHeight;
-        rtPopup.height = fPopupHeight;
+        pPopupRect->top = -popup_height;
       }
       break;
     }
@@ -220,349 +268,388 @@ bool CPDFXFA_DocEnvironment::GetPopupPos(CXFA_FFWidget* hWidget,
       break;
   }
 
+  pPopupRect->height = popup_height;
   return true;
 }
 
 bool CPDFXFA_DocEnvironment::PopupMenu(CXFA_FFWidget* hWidget,
-                                       CFX_PointF ptPopup) {
-  if (!hWidget)
+                                       const CFX_PointF& ptPopup) {
+  if (!hWidget) {
     return false;
-
-  CXFA_FFPageView* pXFAPageView = hWidget->GetPageView();
-  if (!pXFAPageView)
-    return false;
-
-  CPDFXFA_Page* pPage = m_pContext->GetXFAPage(pXFAPageView);
-  if (!pPage)
-    return false;
-
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
-    return false;
-
-  int menuFlag = 0;
-  if (hWidget->CanUndo())
-    menuFlag |= FXFA_MENU_UNDO;
-  if (hWidget->CanRedo())
-    menuFlag |= FXFA_MENU_REDO;
-  if (hWidget->CanPaste())
-    menuFlag |= FXFA_MENU_PASTE;
-  if (hWidget->CanCopy())
-    menuFlag |= FXFA_MENU_COPY;
-  if (hWidget->CanCut())
-    menuFlag |= FXFA_MENU_CUT;
-  if (hWidget->CanSelectAll())
-    menuFlag |= FXFA_MENU_SELECTALL;
-
-  return pFormFillEnv->PopupMenu(pPage, hWidget, menuFlag, ptPopup);
-}
-
-void CPDFXFA_DocEnvironment::PageViewEvent(CXFA_FFPageView* pPageView,
-                                           uint32_t dwFlags) {
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
-    return;
-
-  if (m_pContext->GetLoadStatus() == FXFA_LOADSTATUS_LOADING ||
-      m_pContext->GetLoadStatus() == FXFA_LOADSTATUS_CLOSING ||
-      XFA_PAGEVIEWEVENT_StopLayout != dwFlags)
-    return;
-
-  int nNewCount = m_pContext->GetPageCount();
-  if (nNewCount == m_pContext->GetOriginalPageCount())
-    return;
-
-  CXFA_FFDocView* pXFADocView = m_pContext->GetXFADocView();
-  if (!pXFADocView)
-    return;
-
-  for (int iPageIter = 0; iPageIter < m_pContext->GetOriginalPageCount();
-       iPageIter++) {
-    CPDFXFA_Page* pPage = (*m_pContext->GetXFAPageList())[iPageIter];
-    if (!pPage)
-      continue;
-
-    m_pContext->GetFormFillEnv()->RemovePageView(pPage);
-    pPage->SetXFAPageView(pXFADocView->GetPageView(iPageIter));
   }
 
-  int flag = (nNewCount < m_pContext->GetOriginalPageCount())
+  CXFA_FFPageView* pXFAPageView = hWidget->GetPageView();
+  if (!pXFAPageView) {
+    return false;
+  }
+
+  RetainPtr<CPDFXFA_Page> pPage = context_->GetXFAPage(pXFAPageView);
+  if (!pPage) {
+    return false;
+  }
+
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
+    return false;
+  }
+
+  int menuFlag = 0;
+  if (hWidget->CanUndo()) {
+    menuFlag |= FXFA_MENU_UNDO;
+  }
+  if (hWidget->CanRedo()) {
+    menuFlag |= FXFA_MENU_REDO;
+  }
+  if (hWidget->CanPaste()) {
+    menuFlag |= FXFA_MENU_PASTE;
+  }
+  if (hWidget->CanCopy()) {
+    menuFlag |= FXFA_MENU_COPY;
+  }
+  if (hWidget->CanCut()) {
+    menuFlag |= FXFA_MENU_CUT;
+  }
+  if (hWidget->CanSelectAll()) {
+    menuFlag |= FXFA_MENU_SELECTALL;
+  }
+
+  return pFormFillEnv->PopupMenu(pPage.Get(), menuFlag, ptPopup);
+}
+
+void CPDFXFA_DocEnvironment::OnPageViewEvent(CXFA_FFPageView* pPageView,
+                                             CXFA_FFDoc::PageViewEvent eEvent) {
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
+    return;
+  }
+
+  if (context_->GetLoadStatus() == CPDFXFA_Context::LoadStatus::kLoading ||
+      context_->GetLoadStatus() == CPDFXFA_Context::LoadStatus::kClosing ||
+      eEvent != CXFA_FFDoc::PageViewEvent::kStopLayout) {
+    return;
+  }
+  int nNewCount = context_->GetPageCount();
+  if (nNewCount == context_->GetOriginalPageCount()) {
+    return;
+  }
+
+  CXFA_FFDocView* pXFADocView = context_->GetXFADocView();
+  if (!pXFADocView) {
+    return;
+  }
+
+  for (int i = 0; i < context_->GetOriginalPageCount(); ++i) {
+    RetainPtr<CPDFXFA_Page> pPage = context_->GetXFAPage(i);
+    if (!pPage) {
+      continue;
+    }
+
+    context_->GetFormFillEnv()->RemovePageView(pPage.Get());
+    pPage->SetXFAPageViewIndex(i);
+  }
+
+  int flag = (nNewCount < context_->GetOriginalPageCount())
                  ? FXFA_PAGEVIEWEVENT_POSTREMOVED
                  : FXFA_PAGEVIEWEVENT_POSTADDED;
-  int count = FXSYS_abs(nNewCount - m_pContext->GetOriginalPageCount());
-  m_pContext->SetOriginalPageCount(nNewCount);
+  int count = abs(nNewCount - context_->GetOriginalPageCount());
+  context_->SetOriginalPageCount(nNewCount);
   pFormFillEnv->PageEvent(count, flag);
 }
 
-void CPDFXFA_DocEnvironment::WidgetPostAdd(CXFA_FFWidget* hWidget,
-                                           CXFA_WidgetAcc* pWidgetData) {
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA || !hWidget)
+void CPDFXFA_DocEnvironment::WidgetPostAdd(CXFA_FFWidget* hWidget) {
+  if (context_->GetFormType() != FormType::kXFAFull) {
     return;
+  }
 
   CXFA_FFPageView* pPageView = hWidget->GetPageView();
-  if (!pPageView)
+  if (!pPageView) {
     return;
+  }
 
-  CPDFXFA_Page* pXFAPage = m_pContext->GetXFAPage(pPageView);
-  if (!pXFAPage)
+  RetainPtr<CPDFXFA_Page> pXFAPage = context_->GetXFAPage(pPageView);
+  if (!pXFAPage) {
     return;
+  }
 
-  m_pContext->GetFormFillEnv()->GetPageView(pXFAPage, true)->AddAnnot(hWidget);
+  auto* formfill = context_->GetFormFillEnv();
+  formfill->GetOrCreatePageView(pXFAPage.Get())->AddAnnotForFFWidget(hWidget);
 }
 
-void CPDFXFA_DocEnvironment::WidgetPreRemove(CXFA_FFWidget* hWidget,
-                                             CXFA_WidgetAcc* pWidgetData) {
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA || !hWidget)
+void CPDFXFA_DocEnvironment::WidgetPreRemove(CXFA_FFWidget* hWidget) {
+  if (context_->GetFormType() != FormType::kXFAFull) {
     return;
+  }
 
   CXFA_FFPageView* pPageView = hWidget->GetPageView();
-  if (!pPageView)
+  if (!pPageView) {
     return;
+  }
 
-  CPDFXFA_Page* pXFAPage = m_pContext->GetXFAPage(pPageView);
-  if (!pXFAPage)
+  RetainPtr<CPDFXFA_Page> pXFAPage = context_->GetXFAPage(pPageView);
+  if (!pXFAPage) {
     return;
+  }
 
   CPDFSDK_PageView* pSdkPageView =
-      m_pContext->GetFormFillEnv()->GetPageView(pXFAPage, true);
-  if (CPDFSDK_Annot* pAnnot = pSdkPageView->GetAnnotByXFAWidget(hWidget))
-    pSdkPageView->DeleteAnnot(pAnnot);
+      context_->GetFormFillEnv()->GetOrCreatePageView(pXFAPage.Get());
+  pSdkPageView->DeleteAnnotForFFWidget(hWidget);
 }
 
-int32_t CPDFXFA_DocEnvironment::CountPages(CXFA_FFDoc* hDoc) {
-  if (hDoc == m_pContext->GetXFADoc() && m_pContext->GetFormFillEnv())
-    return m_pContext->GetPageCount();
+int32_t CPDFXFA_DocEnvironment::CountPages(const CXFA_FFDoc* hDoc) const {
+  if (hDoc == context_->GetXFADoc() && context_->GetFormFillEnv()) {
+    return context_->GetPageCount();
+  }
   return 0;
 }
 
-int32_t CPDFXFA_DocEnvironment::GetCurrentPage(CXFA_FFDoc* hDoc) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+int32_t CPDFXFA_DocEnvironment::GetCurrentPage(const CXFA_FFDoc* hDoc) const {
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return -1;
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA)
-    return -1;
+  }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  if (context_->GetFormType() != FormType::kXFAFull) {
     return -1;
+  }
 
-  return pFormFillEnv->GetCurrentPageIndex(this);
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  return pFormFillEnv ? pFormFillEnv->GetCurrentPageIndex() : -1;
 }
 
 void CPDFXFA_DocEnvironment::SetCurrentPage(CXFA_FFDoc* hDoc,
                                             int32_t iCurPage) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv() ||
-      m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA || iCurPage < 0 ||
-      iCurPage >= m_pContext->GetFormFillEnv()->GetPageCount()) {
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv() ||
+      !context_->ContainsExtensionForm() || iCurPage < 0 ||
+      iCurPage >= context_->GetFormFillEnv()->GetPageCount()) {
     return;
   }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
     return;
-  pFormFillEnv->SetCurrentPage(this, iCurPage);
+  }
+
+  pFormFillEnv->SetCurrentPage(iCurPage);
 }
 
-bool CPDFXFA_DocEnvironment::IsCalculationsEnabled(CXFA_FFDoc* hDoc) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+bool CPDFXFA_DocEnvironment::IsCalculationsEnabled(
+    const CXFA_FFDoc* hDoc) const {
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return false;
-  if (m_pContext->GetFormFillEnv()->GetInterForm()) {
-    return m_pContext->GetFormFillEnv()
-        ->GetInterForm()
-        ->IsXfaCalculateEnabled();
   }
-  return false;
+  auto* pForm = context_->GetFormFillEnv()->GetInteractiveForm();
+  return pForm->IsXfaCalculateEnabled();
 }
 
 void CPDFXFA_DocEnvironment::SetCalculationsEnabled(CXFA_FFDoc* hDoc,
                                                     bool bEnabled) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return;
-  if (m_pContext->GetFormFillEnv()->GetInterForm()) {
-    m_pContext->GetFormFillEnv()->GetInterForm()->XfaEnableCalculate(bEnabled);
   }
+  context_->GetFormFillEnv()->GetInteractiveForm()->XfaEnableCalculate(
+      bEnabled);
 }
 
-void CPDFXFA_DocEnvironment::GetTitle(CXFA_FFDoc* hDoc,
-                                      CFX_WideString& wsTitle) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetPDFDoc())
-    return;
+WideString CPDFXFA_DocEnvironment::GetTitle(const CXFA_FFDoc* hDoc) const {
+  if (hDoc != context_->GetXFADoc()) {
+    return WideString();
+  }
 
-  CPDF_Dictionary* pInfoDict = m_pContext->GetPDFDoc()->GetInfo();
-  if (!pInfoDict)
-    return;
+  CPDF_Document* pPDFDoc = context_->GetPDFDoc();
+  if (!pPDFDoc) {
+    return WideString();
+  }
 
-  CFX_ByteString csTitle = pInfoDict->GetStringFor("Title");
-  wsTitle = wsTitle.FromLocal(csTitle.GetBuffer(csTitle.GetLength()));
-  csTitle.ReleaseBuffer(csTitle.GetLength());
+  RetainPtr<const CPDF_Dictionary> pInfoDict = pPDFDoc->GetInfo();
+  if (!pInfoDict) {
+    return WideString();
+  }
+
+  ByteString csTitle = pInfoDict->GetByteStringFor("Title");
+  return WideString::FromDefANSI(csTitle.AsStringView());
 }
 
 void CPDFXFA_DocEnvironment::SetTitle(CXFA_FFDoc* hDoc,
-                                      const CFX_WideString& wsTitle) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetPDFDoc())
-    return;
-
-  if (CPDF_Dictionary* pInfoDict = m_pContext->GetPDFDoc()->GetInfo())
-    pInfoDict->SetNewFor<CPDF_String>("Title", wsTitle);
-}
-
-void CPDFXFA_DocEnvironment::ExportData(CXFA_FFDoc* hDoc,
-                                        const CFX_WideString& wsFilePath,
-                                        bool bXDP) {
-  if (hDoc != m_pContext->GetXFADoc())
-    return;
-
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA &&
-      m_pContext->GetDocType() != DOCTYPE_STATIC_XFA) {
+                                      const WideString& wsTitle) {
+  if (hDoc != context_->GetXFADoc()) {
     return;
   }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  CPDF_Document* pPDFDoc = context_->GetPDFDoc();
+  if (!pPDFDoc) {
     return;
+  }
+
+  RetainPtr<CPDF_Dictionary> pInfoDict = pPDFDoc->GetInfo();
+  if (pInfoDict) {
+    pInfoDict->SetNewFor<CPDF_String>("Title", wsTitle.AsStringView());
+  }
+}
+
+void CPDFXFA_DocEnvironment::ExportData(CXFA_FFDoc* hDoc,
+                                        const WideString& wsFilePath,
+                                        bool bXDP) {
+  if (hDoc != context_->GetXFADoc()) {
+    return;
+  }
+
+  if (!context_->ContainsExtensionForm()) {
+    return;
+  }
+
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
+    return;
+  }
 
   int fileType = bXDP ? FXFA_SAVEAS_XDP : FXFA_SAVEAS_XML;
-  CFX_ByteString bs = wsFilePath.UTF16LE_Encode();
+  ByteString bs = wsFilePath.ToUTF16LE();
   if (wsFilePath.IsEmpty()) {
     if (!pFormFillEnv->GetFormFillInfo() ||
         !pFormFillEnv->GetFormFillInfo()->m_pJsPlatform) {
       return;
     }
 
-    CFX_WideString filepath = pFormFillEnv->JS_fieldBrowse();
-    bs = filepath.UTF16LE_Encode();
+    WideString filepath = pFormFillEnv->JS_fieldBrowse();
+    bs = filepath.ToUTF16LE();
   }
-  int len = bs.GetLength();
-  FPDF_FILEHANDLER* pFileHandler =
-      pFormFillEnv->OpenFile(bXDP ? FXFA_SAVEAS_XDP : FXFA_SAVEAS_XML,
-                             (FPDF_WIDESTRING)bs.GetBuffer(len), "wb");
-  bs.ReleaseBuffer(len);
-  if (!pFileHandler)
+  FPDF_FILEHANDLER* pFileHandler = pFormFillEnv->OpenFile(
+      bXDP ? FXFA_SAVEAS_XDP : FXFA_SAVEAS_XML, AsFPDFWideString(&bs), "wb");
+  if (!pFileHandler) {
     return;
+  }
 
-  CFX_RetainPtr<IFX_SeekableStream> fileWrite =
-      MakeSeekableStream(pFileHandler);
-  CFX_ByteString content;
+  RetainPtr<IFX_SeekableStream> fileWrite = MakeSeekableStream(pFileHandler);
   if (fileType == FXFA_SAVEAS_XML) {
-    content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n";
-    fileWrite->WriteBlock(content.c_str(), fileWrite->GetSize(),
-                          content.GetLength());
-    m_pContext->GetXFADocView()->GetDoc()->SavePackage(XFA_HASHCODE_Data,
-                                                       fileWrite, nullptr);
+    fileWrite->WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n");
+    CXFA_FFDoc* ffdoc = context_->GetXFADocView()->GetDoc();
+    ffdoc->SavePackage(
+        ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Data)), fileWrite);
   } else if (fileType == FXFA_SAVEAS_XDP) {
-    if (!m_pContext->GetPDFDoc())
+    if (!context_->GetPDFDoc()) {
       return;
+    }
 
-    CPDF_Dictionary* pRoot = m_pContext->GetPDFDoc()->GetRoot();
-    if (!pRoot)
+    const CPDF_Dictionary* pRoot = context_->GetPDFDoc()->GetRoot();
+    if (!pRoot) {
       return;
+    }
 
-    CPDF_Dictionary* pAcroForm = pRoot->GetDictFor("AcroForm");
-    if (!pAcroForm)
+    RetainPtr<const CPDF_Dictionary> pAcroForm = pRoot->GetDictFor("AcroForm");
+    if (!pAcroForm) {
       return;
+    }
 
-    CPDF_Array* pArray = ToArray(pAcroForm->GetObjectFor("XFA"));
-    if (!pArray)
+    RetainPtr<const CPDF_Array> pArray =
+        ToArray(pAcroForm->GetObjectFor("XFA"));
+    if (!pArray) {
       return;
+    }
 
-    int size = pArray->GetCount();
-    for (int i = 1; i < size; i += 2) {
-      CPDF_Object* pPDFObj = pArray->GetObjectAt(i);
-      CPDF_Object* pPrePDFObj = pArray->GetObjectAt(i - 1);
-      if (!pPrePDFObj->IsString())
+    for (size_t i = 1; i < pArray->size(); i += 2) {
+      RetainPtr<const CPDF_Object> pPDFObj = pArray->GetObjectAt(i);
+      RetainPtr<const CPDF_Object> pPrePDFObj = pArray->GetObjectAt(i - 1);
+      if (!pPrePDFObj->IsString()) {
         continue;
-      if (!pPDFObj->IsReference())
+      }
+      if (!pPDFObj->IsReference()) {
         continue;
+      }
 
-      CPDF_Stream* pStream = ToStream(pPDFObj->GetDirect());
-      if (!pStream)
+      RetainPtr<const CPDF_Stream> pStream = ToStream(pPDFObj->GetDirect());
+      if (!pStream) {
         continue;
+      }
       if (pPrePDFObj->GetString() == "form") {
-        m_pContext->GetXFADocView()->GetDoc()->SavePackage(XFA_HASHCODE_Form,
-                                                           fileWrite, nullptr);
+        CXFA_FFDoc* ffdoc = context_->GetXFADocView()->GetDoc();
+        ffdoc->SavePackage(
+            ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Form)),
+            fileWrite);
         continue;
       }
       if (pPrePDFObj->GetString() == "datasets") {
-        m_pContext->GetXFADocView()->GetDoc()->SavePackage(
-            XFA_HASHCODE_Datasets, fileWrite, nullptr);
+        CXFA_FFDoc* ffdoc = context_->GetXFADocView()->GetDoc();
+        ffdoc->SavePackage(
+            ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Datasets)),
+            fileWrite);
         continue;
       }
-      if (i == size - 1) {
-        CFX_WideString wPath = CFX_WideString::FromUTF16LE(
-            reinterpret_cast<const unsigned short*>(bs.c_str()),
-            bs.GetLength() / sizeof(unsigned short));
-        CFX_ByteString bPath = wPath.UTF8Encode();
-        const char* szFormat =
+      if (i == pArray->size() - 1) {
+        WideString wPath = WideString::FromUTF16LE(bs.unsigned_span());
+        ByteString bPath = wPath.ToUTF8();
+        static const char kFormat[] =
             "\n<pdf href=\"%s\" xmlns=\"http://ns.adobe.com/xdp/pdf/\"/>";
-        content.Format(szFormat, bPath.c_str());
-        fileWrite->WriteBlock(content.c_str(), fileWrite->GetSize(),
-                              content.GetLength());
+        ByteString content = ByteString::Format(kFormat, bPath.c_str());
+        fileWrite->WriteString(content.AsStringView());
       }
-      std::unique_ptr<CPDF_StreamAcc> pAcc(new CPDF_StreamAcc);
-      pAcc->LoadAllData(pStream);
-      fileWrite->WriteBlock(pAcc->GetData(), fileWrite->GetSize(),
-                            pAcc->GetSize());
+      auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(std::move(pStream));
+      pAcc->LoadAllDataFiltered();
+      fileWrite->WriteBlock(pAcc->GetSpan());
     }
   }
   fileWrite->Flush();
 }
 
 void CPDFXFA_DocEnvironment::GotoURL(CXFA_FFDoc* hDoc,
-                                     const CFX_WideString& bsURL) {
-  if (hDoc != m_pContext->GetXFADoc())
+                                     const WideString& wsURL) {
+  if (hDoc != context_->GetXFADoc()) {
     return;
+  }
 
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA)
+  if (context_->GetFormType() != FormType::kXFAFull) {
     return;
+  }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
     return;
+  }
 
-  CFX_WideStringC str(bsURL.c_str());
-  pFormFillEnv->GotoURL(this, str);
+  pFormFillEnv->GotoURL(wsURL);
 }
 
-bool CPDFXFA_DocEnvironment::IsValidationsEnabled(CXFA_FFDoc* hDoc) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+bool CPDFXFA_DocEnvironment::IsValidationsEnabled(
+    const CXFA_FFDoc* hDoc) const {
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return false;
-  if (m_pContext->GetFormFillEnv()->GetInterForm()) {
-    return m_pContext->GetFormFillEnv()
-        ->GetInterForm()
-        ->IsXfaValidationsEnabled();
   }
-  return true;
+
+  auto* pForm = context_->GetFormFillEnv()->GetInteractiveForm();
+  return pForm->IsXfaValidationsEnabled();
 }
 
 void CPDFXFA_DocEnvironment::SetValidationsEnabled(CXFA_FFDoc* hDoc,
                                                    bool bEnabled) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return;
-  if (m_pContext->GetFormFillEnv()->GetInterForm()) {
-    m_pContext->GetFormFillEnv()->GetInterForm()->XfaSetValidationsEnabled(
-        bEnabled);
   }
+
+  context_->GetFormFillEnv()->GetInteractiveForm()->XfaSetValidationsEnabled(
+      bEnabled);
 }
 
 void CPDFXFA_DocEnvironment::SetFocusWidget(CXFA_FFDoc* hDoc,
                                             CXFA_FFWidget* hWidget) {
-  if (hDoc != m_pContext->GetXFADoc())
-    return;
-
-  if (!hWidget) {
-    CPDFSDK_Annot::ObservedPtr pNull;
-    m_pContext->GetFormFillEnv()->SetFocusAnnot(&pNull);
+  if (hDoc != context_->GetXFADoc()) {
     return;
   }
 
-  int pageViewCount = m_pContext->GetFormFillEnv()->GetPageViewCount();
-  for (int i = 0; i < pageViewCount; i++) {
-    CPDFSDK_PageView* pPageView = m_pContext->GetFormFillEnv()->GetPageView(i);
-    if (!pPageView)
-      continue;
+  if (!hWidget) {
+    ObservedPtr<CPDFSDK_Annot> pNull;
+    context_->GetFormFillEnv()->SetFocusAnnot(pNull);
+    return;
+  }
 
-    CPDFSDK_Annot::ObservedPtr pAnnot(pPageView->GetAnnotByXFAWidget(hWidget));
+  int pageViewCount = context_->GetFormFillEnv()->GetPageViewCount();
+  for (int i = 0; i < pageViewCount; i++) {
+    CPDFSDK_PageView* pPageView =
+        context_->GetFormFillEnv()->GetPageViewAtIndex(i);
+    if (!pPageView) {
+      continue;
+    }
+
+    ObservedPtr<CPDFSDK_Annot> pAnnot(pPageView->GetAnnotForFFWidget(hWidget));
     if (pAnnot) {
-      m_pContext->GetFormFillEnv()->SetFocusAnnot(&pAnnot);
+      context_->GetFormFillEnv()->SetFocusAnnot(pAnnot);
       break;
     }
   }
@@ -571,11 +658,12 @@ void CPDFXFA_DocEnvironment::SetFocusWidget(CXFA_FFDoc* hDoc,
 void CPDFXFA_DocEnvironment::Print(CXFA_FFDoc* hDoc,
                                    int32_t nStartPage,
                                    int32_t nEndPage,
-                                   uint32_t dwOptions) {
-  if (hDoc != m_pContext->GetXFADoc())
+                                   Mask<XFA_PrintOpt> dwOptions) {
+  if (hDoc != context_->GetXFADoc()) {
     return;
+  }
 
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
   if (!pFormFillEnv || !pFormFillEnv->GetFormFillInfo() ||
       !pFormFillEnv->GetFormFillInfo()->m_pJsPlatform ||
       !pFormFillEnv->GetFormFillInfo()->m_pJsPlatform->Doc_print) {
@@ -584,313 +672,128 @@ void CPDFXFA_DocEnvironment::Print(CXFA_FFDoc* hDoc,
 
   pFormFillEnv->GetFormFillInfo()->m_pJsPlatform->Doc_print(
       pFormFillEnv->GetFormFillInfo()->m_pJsPlatform,
-      dwOptions & XFA_PRINTOPT_ShowDialog, nStartPage, nEndPage,
-      dwOptions & XFA_PRINTOPT_CanCancel, dwOptions & XFA_PRINTOPT_ShrinkPage,
-      dwOptions & XFA_PRINTOPT_AsImage, dwOptions & XFA_PRINTOPT_ReverseOrder,
-      dwOptions & XFA_PRINTOPT_PrintAnnot);
+      !!(dwOptions & XFA_PrintOpt::kShowDialog), nStartPage, nEndPage,
+      !!(dwOptions & XFA_PrintOpt::kCanCancel),
+      !!(dwOptions & XFA_PrintOpt::kShrinkPage),
+      !!(dwOptions & XFA_PrintOpt::kAsImage),
+      !!(dwOptions & XFA_PrintOpt::kReverseOrder),
+      !!(dwOptions & XFA_PrintOpt::kPrintAnnot));
 }
 
-FX_ARGB CPDFXFA_DocEnvironment::GetHighlightColor(CXFA_FFDoc* hDoc) {
-  if (hDoc != m_pContext->GetXFADoc() || !m_pContext->GetFormFillEnv())
+FX_ARGB CPDFXFA_DocEnvironment::GetHighlightColor(
+    const CXFA_FFDoc* hDoc) const {
+  if (hDoc != context_->GetXFADoc() || !context_->GetFormFillEnv()) {
     return 0;
-
-  CPDFSDK_InterForm* pInterForm = m_pContext->GetFormFillEnv()->GetInterForm();
-  if (!pInterForm)
-    return 0;
-
-  return ArgbEncode(pInterForm->GetHighlightAlpha(),
-                    pInterForm->GetHighlightColor(FPDF_FORMFIELD_XFA));
-}
-
-bool CPDFXFA_DocEnvironment::NotifySubmit(bool bPrevOrPost) {
-  if (bPrevOrPost)
-    return OnBeforeNotifySubmit();
-
-  OnAfterNotifySubmit();
-  return true;
-}
-
-bool CPDFXFA_DocEnvironment::OnBeforeNotifySubmit() {
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA &&
-      m_pContext->GetDocType() != DOCTYPE_STATIC_XFA) {
-    return true;
   }
 
-  if (!m_pContext->GetXFADocView())
-    return true;
-
-  CXFA_FFWidgetHandler* pWidgetHandler =
-      m_pContext->GetXFADocView()->GetWidgetHandler();
-  if (!pWidgetHandler)
-    return true;
-
-  std::unique_ptr<CXFA_WidgetAccIterator> pWidgetAccIterator(
-      m_pContext->GetXFADocView()->CreateWidgetAccIterator());
-  if (pWidgetAccIterator) {
-    CXFA_EventParam Param;
-    Param.m_eType = XFA_EVENT_PreSubmit;
-    while (CXFA_WidgetAcc* pWidgetAcc = pWidgetAccIterator->MoveToNext())
-      pWidgetHandler->ProcessEvent(pWidgetAcc, &Param);
-  }
-
-  pWidgetAccIterator.reset(
-      m_pContext->GetXFADocView()->CreateWidgetAccIterator());
-  if (!pWidgetAccIterator)
-    return true;
-
-  CXFA_WidgetAcc* pWidgetAcc = pWidgetAccIterator->MoveToNext();
-  pWidgetAcc = pWidgetAccIterator->MoveToNext();
-  while (pWidgetAcc) {
-    int fRet = pWidgetAcc->ProcessValidate(-1);
-    if (fRet == XFA_EVENTERROR_Error) {
-      CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-      if (!pFormFillEnv)
-        return false;
-
-      CFX_WideString ws;
-      ws.FromLocal(IDS_XFA_Validate_Input);
-      CFX_ByteString bs = ws.UTF16LE_Encode();
-      int len = bs.GetLength();
-      pFormFillEnv->Alert((FPDF_WIDESTRING)bs.GetBuffer(len),
-                          (FPDF_WIDESTRING)L"", 0, 1);
-      bs.ReleaseBuffer(len);
-      return false;
-    }
-    pWidgetAcc = pWidgetAccIterator->MoveToNext();
-  }
-  m_pContext->GetXFADocView()->UpdateDocView();
-
-  return true;
+  CPDFSDK_InteractiveForm* pForm =
+      context_->GetFormFillEnv()->GetInteractiveForm();
+  return AlphaAndColorRefToArgb(pForm->GetHighlightAlpha(),
+                                pForm->GetHighlightColor(FormFieldType::kXFA));
 }
 
-void CPDFXFA_DocEnvironment::OnAfterNotifySubmit() {
-  if (m_pContext->GetDocType() != DOCTYPE_DYNAMIC_XFA &&
-      m_pContext->GetDocType() != DOCTYPE_STATIC_XFA)
-    return;
-
-  if (!m_pContext->GetXFADocView())
-    return;
-
-  CXFA_FFWidgetHandler* pWidgetHandler =
-      m_pContext->GetXFADocView()->GetWidgetHandler();
-  if (!pWidgetHandler)
-    return;
-
-  std::unique_ptr<CXFA_WidgetAccIterator> pWidgetAccIterator(
-      m_pContext->GetXFADocView()->CreateWidgetAccIterator());
-  if (!pWidgetAccIterator)
-    return;
-
-  CXFA_EventParam Param;
-  Param.m_eType = XFA_EVENT_PostSubmit;
-  CXFA_WidgetAcc* pWidgetAcc = pWidgetAccIterator->MoveToNext();
-  while (pWidgetAcc) {
-    pWidgetHandler->ProcessEvent(pWidgetAcc, &Param);
-    pWidgetAcc = pWidgetAccIterator->MoveToNext();
+IJS_Runtime* CPDFXFA_DocEnvironment::GetIJSRuntime(
+    const CXFA_FFDoc* hDoc) const {
+  if (hDoc != context_->GetXFADoc()) {
+    return nullptr;
   }
-  m_pContext->GetXFADocView()->UpdateDocView();
+
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  return pFormFillEnv ? pFormFillEnv->GetIJSRuntime() : nullptr;
 }
 
-bool CPDFXFA_DocEnvironment::SubmitData(CXFA_FFDoc* hDoc, CXFA_Submit submit) {
-  if (!NotifySubmit(true) || !m_pContext->GetXFADocView())
-    return false;
-
-  m_pContext->GetXFADocView()->UpdateDocView();
-  bool ret = SubmitDataInternal(hDoc, submit);
-  NotifySubmit(false);
-  return ret;
+CFX_XMLDocument* CPDFXFA_DocEnvironment::GetXMLDoc() const {
+  return context_->GetXMLDoc();
 }
 
-CFX_RetainPtr<IFX_SeekableReadStream> CPDFXFA_DocEnvironment::OpenLinkedFile(
+RetainPtr<IFX_SeekableReadStream> CPDFXFA_DocEnvironment::OpenLinkedFile(
     CXFA_FFDoc* hDoc,
-    const CFX_WideString& wsLink) {
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+    const WideString& wsLink) {
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
     return nullptr;
+  }
 
-  CFX_ByteString bs = wsLink.UTF16LE_Encode();
-  int len = bs.GetLength();
+  ByteString bs = wsLink.ToUTF16LE();
   FPDF_FILEHANDLER* pFileHandler =
-      pFormFillEnv->OpenFile(0, (FPDF_WIDESTRING)bs.GetBuffer(len), "rb");
-  bs.ReleaseBuffer(len);
-  if (!pFileHandler)
+      pFormFillEnv->OpenFile(0, AsFPDFWideString(&bs), "rb");
+  if (!pFileHandler) {
     return nullptr;
+  }
 
   return MakeSeekableStream(pFileHandler);
 }
 
-bool CPDFXFA_DocEnvironment::ExportSubmitFile(FPDF_FILEHANDLER* pFileHandler,
-                                              int fileType,
-                                              FPDF_DWORD encodeType,
-                                              FPDF_DWORD flag) {
-  if (!m_pContext->GetXFADocView())
-    return false;
-
-  CFX_ByteString content;
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
-    return false;
-
-  CFX_RetainPtr<IFX_SeekableStream> fileStream =
-      MakeSeekableStream(pFileHandler);
-
-  if (fileType == FXFA_SAVEAS_XML) {
-    const char kContent[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n";
-    fileStream->WriteBlock(kContent, 0, strlen(kContent));
-    m_pContext->GetXFADoc()->SavePackage(XFA_HASHCODE_Data, fileStream,
-                                         nullptr);
-    return true;
-  }
-
-  if (fileType != FXFA_SAVEAS_XDP)
-    return true;
-
-  if (!flag) {
-    flag = FXFA_CONFIG | FXFA_TEMPLATE | FXFA_LOCALESET | FXFA_DATASETS |
-           FXFA_XMPMETA | FXFA_XFDF | FXFA_FORM;
-  }
-  if (!m_pContext->GetPDFDoc()) {
-    fileStream->Flush();
+#ifdef PDF_XFA_ELEMENT_SUBMIT_ENABLED
+bool CPDFXFA_DocEnvironment::Submit(CXFA_FFDoc* hDoc, CXFA_Submit* submit) {
+  if (!OnBeforeNotifySubmit() || !context_->GetXFADocView()) {
     return false;
   }
 
-  CPDF_Dictionary* pRoot = m_pContext->GetPDFDoc()->GetRoot();
-  if (!pRoot) {
-    fileStream->Flush();
+  context_->GetXFADocView()->UpdateDocView();
+  bool ret = SubmitInternal(hDoc, submit);
+  OnAfterNotifySubmit();
+  return ret;
+}
+
+bool CPDFXFA_DocEnvironment::MailToInfo(WideString& csURL,
+                                        WideString& csToAddress,
+                                        WideString& csCCAddress,
+                                        WideString& csBCCAddress,
+                                        WideString& csSubject,
+                                        WideString& csMsg) {
+  WideString srcURL = csURL;
+  srcURL.TrimWhitespaceFront();
+  if (!srcURL.Left(7).EqualsASCIINoCase("mailto:")) {
     return false;
   }
+  auto pos = srcURL.Find(L'?');
+  {
+    WideString tmp;
+    if (!pos.has_value()) {
+      pos = srcURL.Find(L'@');
+      if (!pos.has_value()) {
+        return false;
+      }
 
-  CPDF_Dictionary* pAcroForm = pRoot->GetDictFor("AcroForm");
-  if (!pAcroForm) {
-    fileStream->Flush();
-    return false;
-  }
-
-  CPDF_Array* pArray = ToArray(pAcroForm->GetObjectFor("XFA"));
-  if (!pArray) {
-    fileStream->Flush();
-    return false;
-  }
-
-  int size = pArray->GetCount();
-  for (int i = 1; i < size; i += 2) {
-    CPDF_Object* pPDFObj = pArray->GetObjectAt(i);
-    CPDF_Object* pPrePDFObj = pArray->GetObjectAt(i - 1);
-    if (!pPrePDFObj->IsString())
-      continue;
-    if (!pPDFObj->IsReference())
-      continue;
-
-    CPDF_Object* pDirectObj = pPDFObj->GetDirect();
-    if (!pDirectObj->IsStream())
-      continue;
-    if (pPrePDFObj->GetString() == "config" && !(flag & FXFA_CONFIG))
-      continue;
-    if (pPrePDFObj->GetString() == "template" && !(flag & FXFA_TEMPLATE))
-      continue;
-    if (pPrePDFObj->GetString() == "localeSet" && !(flag & FXFA_LOCALESET))
-      continue;
-    if (pPrePDFObj->GetString() == "datasets" && !(flag & FXFA_DATASETS))
-      continue;
-    if (pPrePDFObj->GetString() == "xmpmeta" && !(flag & FXFA_XMPMETA))
-      continue;
-    if (pPrePDFObj->GetString() == "xfdf" && !(flag & FXFA_XFDF))
-      continue;
-    if (pPrePDFObj->GetString() == "form" && !(flag & FXFA_FORM))
-      continue;
-    if (pPrePDFObj->GetString() == "form") {
-      m_pContext->GetXFADoc()->SavePackage(XFA_HASHCODE_Form, fileStream,
-                                           nullptr);
-    } else if (pPrePDFObj->GetString() == "datasets") {
-      m_pContext->GetXFADoc()->SavePackage(XFA_HASHCODE_Datasets, fileStream,
-                                           nullptr);
+      tmp = srcURL.Right(csURL.GetLength() - 7);
     } else {
-      // PDF,creator.
+      tmp = srcURL.Left(pos.value());
+      tmp = tmp.Right(tmp.GetLength() - 7);
     }
+    tmp.TrimWhitespace();
+    csToAddress = std::move(tmp);
   }
-  return true;
-}
 
-void CPDFXFA_DocEnvironment::ToXFAContentFlags(CFX_WideString csSrcContent,
-                                               FPDF_DWORD& flag) {
-  if (csSrcContent.Find(L" config ", 0) != -1)
-    flag |= FXFA_CONFIG;
-  if (csSrcContent.Find(L" template ", 0) != -1)
-    flag |= FXFA_TEMPLATE;
-  if (csSrcContent.Find(L" localeSet ", 0) != -1)
-    flag |= FXFA_LOCALESET;
-  if (csSrcContent.Find(L" datasets ", 0) != -1)
-    flag |= FXFA_DATASETS;
-  if (csSrcContent.Find(L" xmpmeta ", 0) != -1)
-    flag |= FXFA_XMPMETA;
-  if (csSrcContent.Find(L" xfdf ", 0) != -1)
-    flag |= FXFA_XFDF;
-  if (csSrcContent.Find(L" form ", 0) != -1)
-    flag |= FXFA_FORM;
-  if (flag == 0) {
-    flag = FXFA_CONFIG | FXFA_TEMPLATE | FXFA_LOCALESET | FXFA_DATASETS |
-           FXFA_XMPMETA | FXFA_XFDF | FXFA_FORM;
-  }
-}
-
-bool CPDFXFA_DocEnvironment::MailToInfo(CFX_WideString& csURL,
-                                        CFX_WideString& csToAddress,
-                                        CFX_WideString& csCCAddress,
-                                        CFX_WideString& csBCCAddress,
-                                        CFX_WideString& csSubject,
-                                        CFX_WideString& csMsg) {
-  CFX_WideString srcURL = csURL;
-  srcURL.TrimLeft();
-  if (srcURL.Left(7).CompareNoCase(L"mailto:") != 0)
-    return false;
-
-  int pos = srcURL.Find(L'?', 0);
-  CFX_WideString tmp;
-  if (pos == -1) {
-    pos = srcURL.Find(L'@', 0);
-    if (pos == -1)
-      return false;
-
-    tmp = srcURL.Right(csURL.GetLength() - 7);
-  } else {
-    tmp = srcURL.Left(pos);
-    tmp = tmp.Right(tmp.GetLength() - 7);
-  }
-  tmp.TrimLeft();
-  tmp.TrimRight();
-
-  csToAddress = tmp;
-
-  srcURL = srcURL.Right(srcURL.GetLength() - (pos + 1));
+  srcURL = srcURL.Right(srcURL.GetLength() - (pos.value() + 1));
   while (!srcURL.IsEmpty()) {
-    srcURL.TrimLeft();
-    srcURL.TrimRight();
-    pos = srcURL.Find(L'&', 0);
-
-    tmp = (pos == -1) ? srcURL : srcURL.Left(pos);
-    tmp.TrimLeft();
-    tmp.TrimRight();
-    if (tmp.GetLength() >= 3 && tmp.Left(3).CompareNoCase(L"cc=") == 0) {
+    srcURL.TrimWhitespace();
+    pos = srcURL.Find(L'&');
+    WideString tmp = (!pos.has_value()) ? srcURL : srcURL.Left(pos.value());
+    tmp.TrimWhitespace();
+    if (tmp.GetLength() >= 3 && tmp.Left(3).EqualsASCIINoCase("cc=")) {
       tmp = tmp.Right(tmp.GetLength() - 3);
-      if (!csCCAddress.IsEmpty())
+      if (!csCCAddress.IsEmpty()) {
         csCCAddress += L';';
+      }
       csCCAddress += tmp;
-    } else if (tmp.GetLength() >= 4 &&
-               tmp.Left(4).CompareNoCase(L"bcc=") == 0) {
+    } else if (tmp.GetLength() >= 4 && tmp.Left(4).EqualsASCIINoCase("bcc=")) {
       tmp = tmp.Right(tmp.GetLength() - 4);
-      if (!csBCCAddress.IsEmpty())
+      if (!csBCCAddress.IsEmpty()) {
         csBCCAddress += L';';
+      }
       csBCCAddress += tmp;
     } else if (tmp.GetLength() >= 8 &&
-               tmp.Left(8).CompareNoCase(L"subject=") == 0) {
+               tmp.Left(8).EqualsASCIINoCase("subject=")) {
       tmp = tmp.Right(tmp.GetLength() - 8);
       csSubject += tmp;
-    } else if (tmp.GetLength() >= 5 &&
-               tmp.Left(5).CompareNoCase(L"body=") == 0) {
+    } else if (tmp.GetLength() >= 5 && tmp.Left(5).EqualsASCIINoCase("body=")) {
       tmp = tmp.Right(tmp.GetLength() - 5);
       csMsg += tmp;
     }
-    srcURL = (pos == -1) ? L"" : srcURL.Right(csURL.GetLength() - (pos + 1));
+    srcURL = pos.has_value()
+                 ? srcURL.Right(csURL.GetLength() - (pos.value() + 1))
+                 : WideString();
   }
   csToAddress.Replace(L",", L";");
   csCCAddress.Replace(L",", L";");
@@ -898,42 +801,248 @@ bool CPDFXFA_DocEnvironment::MailToInfo(CFX_WideString& csURL,
   return true;
 }
 
-bool CPDFXFA_DocEnvironment::SubmitDataInternal(CXFA_FFDoc* hDoc,
-                                                CXFA_Submit submit) {
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!pFormFillEnv)
+bool CPDFXFA_DocEnvironment::ExportSubmitFile(FPDF_FILEHANDLER* pFileHandler,
+                                              int fileType,
+                                              FPDF_DWORD encodeType,
+                                              FPDF_DWORD flag) {
+  if (!context_->GetXFADocView()) {
     return false;
+  }
 
-  CFX_WideStringC csURLC;
-  submit.GetSubmitTarget(csURLC);
-  CFX_WideString csURL(csURLC);
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
+    return false;
+  }
+
+  CXFA_FFDoc* ffdoc = context_->GetXFADocView()->GetDoc();
+  RetainPtr<IFX_SeekableStream> fileStream = MakeSeekableStream(pFileHandler);
+  if (fileType == FXFA_SAVEAS_XML) {
+    fileStream->WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n");
+    ffdoc->SavePackage(
+        ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Data)),
+        fileStream);
+    return true;
+  }
+
+  if (fileType != FXFA_SAVEAS_XDP) {
+    return true;
+  }
+
+  if (!flag) {
+    flag = FXFA_CONFIG | FXFA_TEMPLATE | FXFA_LOCALESET | FXFA_DATASETS |
+           FXFA_XMPMETA | FXFA_XFDF | FXFA_FORM;
+  }
+  if (!context_->GetPDFDoc()) {
+    fileStream->Flush();
+    return false;
+  }
+
+  const CPDF_Dictionary* pRoot = context_->GetPDFDoc()->GetRoot();
+  if (!pRoot) {
+    fileStream->Flush();
+    return false;
+  }
+
+  RetainPtr<const CPDF_Dictionary> pAcroForm = pRoot->GetDictFor("AcroForm");
+  if (!pAcroForm) {
+    fileStream->Flush();
+    return false;
+  }
+
+  RetainPtr<const CPDF_Array> pArray = ToArray(pAcroForm->GetObjectFor("XFA"));
+  if (!pArray) {
+    fileStream->Flush();
+    return false;
+  }
+
+  for (size_t i = 1; i < pArray->size(); i += 2) {
+    RetainPtr<const CPDF_Object> pPDFObj = pArray->GetObjectAt(i);
+    RetainPtr<const CPDF_Object> pPrePDFObj = pArray->GetObjectAt(i - 1);
+    if (!pPrePDFObj->IsString()) {
+      continue;
+    }
+    if (!pPDFObj->IsReference()) {
+      continue;
+    }
+
+    RetainPtr<const CPDF_Object> pDirectObj = pPDFObj->GetDirect();
+    if (!pDirectObj->IsStream()) {
+      continue;
+    }
+    ByteString bsType = pPrePDFObj->GetString();
+    if (bsType == "config" && !(flag & FXFA_CONFIG)) {
+      continue;
+    }
+    if (bsType == "template" && !(flag & FXFA_TEMPLATE)) {
+      continue;
+    }
+    if (bsType == "localeSet" && !(flag & FXFA_LOCALESET)) {
+      continue;
+    }
+    if (bsType == "datasets" && !(flag & FXFA_DATASETS)) {
+      continue;
+    }
+    if (bsType == "xmpmeta" && !(flag & FXFA_XMPMETA)) {
+      continue;
+    }
+    if (bsType == "xfdf" && !(flag & FXFA_XFDF)) {
+      continue;
+    }
+    if (bsType == "form" && !(flag & FXFA_FORM)) {
+      continue;
+    }
+
+    if (bsType == "form") {
+      ffdoc->SavePackage(
+          ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Form)),
+          fileStream);
+    } else if (pPrePDFObj->GetString() == "datasets") {
+      ffdoc->SavePackage(
+          ToNode(ffdoc->GetXFADoc()->GetXFAObject(XFA_HASHCODE_Datasets)),
+          fileStream);
+    }
+  }
+  return true;
+}
+
+void CPDFXFA_DocEnvironment::ToXFAContentFlags(WideString csSrcContent,
+                                               FPDF_DWORD& flag) {
+  if (csSrcContent.Contains(L" config ")) {
+    flag |= FXFA_CONFIG;
+  }
+  if (csSrcContent.Contains(L" template ")) {
+    flag |= FXFA_TEMPLATE;
+  }
+  if (csSrcContent.Contains(L" localeSet ")) {
+    flag |= FXFA_LOCALESET;
+  }
+  if (csSrcContent.Contains(L" datasets ")) {
+    flag |= FXFA_DATASETS;
+  }
+  if (csSrcContent.Contains(L" xmpmeta ")) {
+    flag |= FXFA_XMPMETA;
+  }
+  if (csSrcContent.Contains(L" xfdf ")) {
+    flag |= FXFA_XFDF;
+  }
+  if (csSrcContent.Contains(L" form ")) {
+    flag |= FXFA_FORM;
+  }
+  if (flag == 0) {
+    flag = FXFA_CONFIG | FXFA_TEMPLATE | FXFA_LOCALESET | FXFA_DATASETS |
+           FXFA_XMPMETA | FXFA_XFDF | FXFA_FORM;
+  }
+}
+
+bool CPDFXFA_DocEnvironment::OnBeforeNotifySubmit() {
+  if (!context_->ContainsXFAForm()) {
+    return true;
+  }
+
+  CXFA_FFDocView* docView = context_->GetXFADocView();
+  if (!docView) {
+    return true;
+  }
+
+  CXFA_FFWidgetHandler* pWidgetHandler = docView->GetWidgetHandler();
+  if (!pWidgetHandler) {
+    return true;
+  }
+
+  auto it = docView->CreateReadyNodeIterator();
+  if (it) {
+    CXFA_EventParam Param;
+    Param.type_ = XFA_EVENT_PreSubmit;
+    while (CXFA_Node* pNode = it->MoveToNext()) {
+      pWidgetHandler->ProcessEvent(pNode, &Param);
+    }
+  }
+
+  it = docView->CreateReadyNodeIterator();
+  if (!it) {
+    return true;
+  }
+
+  (void)it->MoveToNext();
+  CXFA_Node* pNode = it->MoveToNext();
+
+  while (pNode) {
+    if (pNode->ProcessValidate(docView, -1) == XFA_EventError::kError) {
+      CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+      if (!pFormFillEnv) {
+        return false;
+      }
+
+      pFormFillEnv->JS_appAlert(WideString::FromDefANSI(IDS_XFA_Validate_Input),
+                                WideString(), JSPLATFORM_ALERT_BUTTON_OK,
+                                JSPLATFORM_ALERT_ICON_WARNING);
+      return false;
+    }
+    pNode = it->MoveToNext();
+  }
+
+  docView->UpdateDocView();
+  return true;
+}
+
+void CPDFXFA_DocEnvironment::OnAfterNotifySubmit() {
+  if (!context_->ContainsXFAForm()) {
+    return;
+  }
+
+  if (!context_->GetXFADocView()) {
+    return;
+  }
+
+  CXFA_FFWidgetHandler* pWidgetHandler =
+      context_->GetXFADocView()->GetWidgetHandler();
+  if (!pWidgetHandler) {
+    return;
+  }
+
+  auto it = context_->GetXFADocView()->CreateReadyNodeIterator();
+  if (!it) {
+    return;
+  }
+
+  CXFA_EventParam Param;
+  Param.type_ = XFA_EVENT_PostSubmit;
+  CXFA_Node* pNode = it->MoveToNext();
+  while (pNode) {
+    pWidgetHandler->ProcessEvent(pNode, &Param);
+    pNode = it->MoveToNext();
+  }
+  context_->GetXFADocView()->UpdateDocView();
+}
+
+bool CPDFXFA_DocEnvironment::SubmitInternal(CXFA_FFDoc* hDoc,
+                                            CXFA_Submit* submit) {
+  CPDFSDK_FormFillEnvironment* pFormFillEnv = context_->GetFormFillEnv();
+  if (!pFormFillEnv) {
+    return false;
+  }
+
+  WideString csURL = submit->GetSubmitTarget();
   if (csURL.IsEmpty()) {
-    CFX_WideString ws;
-    ws.FromLocal("Submit cancelled.");
-    CFX_ByteString bs = ws.UTF16LE_Encode();
-    int len = bs.GetLength();
-    pFormFillEnv->Alert((FPDF_WIDESTRING)bs.GetBuffer(len),
-                        (FPDF_WIDESTRING)L"", 0, 4);
-    bs.ReleaseBuffer(len);
+    pFormFillEnv->JS_appAlert(WideString::FromDefANSI("Submit cancelled."),
+                              WideString(), JSPLATFORM_ALERT_BUTTON_OK,
+                              JSPLATFORM_ALERT_ICON_ASTERISK);
     return false;
   }
 
   FPDF_FILEHANDLER* pFileHandler = nullptr;
   int fileFlag = -1;
-  switch (submit.GetSubmitFormat()) {
-    case XFA_ATTRIBUTEENUM_Xdp: {
-      CFX_WideStringC csContentC;
-      submit.GetSubmitXDPContent(csContentC);
-      CFX_WideString csContent;
-      csContent = csContentC;
-      csContent.TrimLeft();
-      csContent.TrimRight();
-      CFX_WideString space;
-      space.FromLocal(" ");
+  switch (submit->GetSubmitFormat()) {
+    case XFA_AttributeValue::Xdp: {
+      WideString csContent = submit->GetSubmitXDPContent();
+      csContent.TrimWhitespace();
+
+      WideString space = WideString::FromDefANSI(" ");
       csContent = space + csContent + space;
       FPDF_DWORD flag = 0;
-      if (submit.IsSubmitEmbedPDF())
+      if (submit->IsSubmitEmbedPDF()) {
         flag |= FXFA_PDF;
+      }
 
       ToXFAContentFlags(csContent, flag);
       pFileHandler = pFormFillEnv->OpenFile(FXFA_SAVEAS_XDP, nullptr, "wb");
@@ -941,14 +1050,14 @@ bool CPDFXFA_DocEnvironment::SubmitDataInternal(CXFA_FFDoc* hDoc,
       ExportSubmitFile(pFileHandler, FXFA_SAVEAS_XDP, 0, flag);
       break;
     }
-    case XFA_ATTRIBUTEENUM_Xml:
+    case XFA_AttributeValue::Xml:
       pFileHandler = pFormFillEnv->OpenFile(FXFA_SAVEAS_XML, nullptr, "wb");
       fileFlag = FXFA_SAVEAS_XML;
       ExportSubmitFile(pFileHandler, FXFA_SAVEAS_XML, 0, FXFA_XFA_ALL);
       break;
-    case XFA_ATTRIBUTEENUM_Pdf:
+    case XFA_AttributeValue::Pdf:
       break;
-    case XFA_ATTRIBUTEENUM_Urlencoded:
+    case XFA_AttributeValue::Urlencoded:
       pFileHandler = pFormFillEnv->OpenFile(FXFA_SAVEAS_XML, nullptr, "wb");
       fileFlag = FXFA_SAVEAS_XML;
       ExportSubmitFile(pFileHandler, FXFA_SAVEAS_XML, 0, FXFA_XFA_ALL);
@@ -956,76 +1065,34 @@ bool CPDFXFA_DocEnvironment::SubmitDataInternal(CXFA_FFDoc* hDoc,
     default:
       return false;
   }
-  if (!pFileHandler)
+  if (!pFileHandler) {
     return false;
-  if (csURL.Left(7).CompareNoCase(L"mailto:") == 0) {
-    CFX_WideString csToAddress;
-    CFX_WideString csCCAddress;
-    CFX_WideString csBCCAddress;
-    CFX_WideString csSubject;
-    CFX_WideString csMsg;
+  }
+
+  if (csURL.Left(7).EqualsASCIINoCase("mailto:")) {
+    WideString csToAddress;
+    WideString csCCAddress;
+    WideString csBCCAddress;
+    WideString csSubject;
+    WideString csMsg;
     if (!MailToInfo(csURL, csToAddress, csCCAddress, csBCCAddress, csSubject,
                     csMsg)) {
       return false;
     }
-    CFX_ByteString bsTo = CFX_WideString(csToAddress).UTF16LE_Encode();
-    CFX_ByteString bsCC = CFX_WideString(csCCAddress).UTF16LE_Encode();
-    CFX_ByteString bsBcc = CFX_WideString(csBCCAddress).UTF16LE_Encode();
-    CFX_ByteString bsSubject = CFX_WideString(csSubject).UTF16LE_Encode();
-    CFX_ByteString bsMsg = CFX_WideString(csMsg).UTF16LE_Encode();
-    FPDF_WIDESTRING pTo = (FPDF_WIDESTRING)bsTo.GetBuffer(bsTo.GetLength());
-    FPDF_WIDESTRING pCC = (FPDF_WIDESTRING)bsCC.GetBuffer(bsCC.GetLength());
-    FPDF_WIDESTRING pBcc = (FPDF_WIDESTRING)bsBcc.GetBuffer(bsBcc.GetLength());
-    FPDF_WIDESTRING pSubject =
-        (FPDF_WIDESTRING)bsSubject.GetBuffer(bsSubject.GetLength());
-    FPDF_WIDESTRING pMsg = (FPDF_WIDESTRING)bsMsg.GetBuffer(bsMsg.GetLength());
-    pFormFillEnv->EmailTo(pFileHandler, pTo, pSubject, pCC, pBcc, pMsg);
-    bsTo.ReleaseBuffer();
-    bsCC.ReleaseBuffer();
-    bsBcc.ReleaseBuffer();
-    bsSubject.ReleaseBuffer();
-    bsMsg.ReleaseBuffer();
-  } else {
-    // HTTP or FTP
-    CFX_WideString ws;
-    CFX_ByteString bs = csURL.UTF16LE_Encode();
-    int len = bs.GetLength();
-    pFormFillEnv->UploadTo(pFileHandler, fileFlag,
-                           (FPDF_WIDESTRING)bs.GetBuffer(len));
-    bs.ReleaseBuffer(len);
+    ByteString bsTo = WideString(csToAddress).ToUTF16LE();
+    ByteString bsCC = WideString(csCCAddress).ToUTF16LE();
+    ByteString bsBcc = WideString(csBCCAddress).ToUTF16LE();
+    ByteString bsSubject = WideString(csSubject).ToUTF16LE();
+    ByteString bsMsg = WideString(csMsg).ToUTF16LE();
+    pFormFillEnv->EmailTo(pFileHandler, AsFPDFWideString(&bsTo),
+                          AsFPDFWideString(&bsSubject), AsFPDFWideString(&bsCC),
+                          AsFPDFWideString(&bsBcc), AsFPDFWideString(&bsMsg));
+    return true;
   }
+
+  // HTTP or FTP
+  ByteString bs = csURL.ToUTF16LE();
+  pFormFillEnv->UploadTo(pFileHandler, fileFlag, AsFPDFWideString(&bs));
   return true;
 }
-
-bool CPDFXFA_DocEnvironment::SetGlobalProperty(
-    CXFA_FFDoc* hDoc,
-    const CFX_ByteStringC& szPropName,
-    CFXJSE_Value* pValue) {
-  if (hDoc != m_pContext->GetXFADoc())
-    return false;
-
-  if (m_pContext->GetFormFillEnv() &&
-      m_pContext->GetFormFillEnv()->GetJSRuntime()) {
-    return m_pContext->GetFormFillEnv()->GetJSRuntime()->SetValueByName(
-        szPropName, pValue);
-  }
-  return false;
-}
-
-bool CPDFXFA_DocEnvironment::GetGlobalProperty(
-    CXFA_FFDoc* hDoc,
-    const CFX_ByteStringC& szPropName,
-    CFXJSE_Value* pValue) {
-  if (hDoc != m_pContext->GetXFADoc())
-    return false;
-  if (!m_pContext->GetFormFillEnv() ||
-      !m_pContext->GetFormFillEnv()->GetJSRuntime()) {
-    return false;
-  }
-
-  CPDFSDK_FormFillEnvironment* pFormFillEnv = m_pContext->GetFormFillEnv();
-  if (!m_pJSEventContext)
-    m_pJSEventContext = pFormFillEnv->GetJSRuntime()->NewEventContext();
-
-  return pFormFillEnv->GetJSRuntime()->GetValueByName(szPropName, pValue);
-}
+#endif  // PDF_XFA_ELEMENT_SUBMIT_ENABLED

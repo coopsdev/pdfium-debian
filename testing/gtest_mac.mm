@@ -1,13 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 #import "gtest_mac.h"
-#include <string>
+
 #include <gtest/gtest.h>
 #include <gtest/internal/gtest-port.h>
 #include <gtest/internal/gtest-string.h>
+#include <string>
+
 #ifdef GTEST_OS_MAC
 #import <Foundation/Foundation.h>
+
 namespace testing {
 namespace internal {
 // Handles nil values for |obj| properly by using safe printing of %@ in

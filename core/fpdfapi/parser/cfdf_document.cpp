@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,94 +7,98 @@
 #include "core/fpdfapi/parser/cfdf_document.h"
 
 #include <memory>
+#include <sstream>
 #include <utility>
 
-#include "core/fpdfapi/edit/cpdf_creator.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
-#include "third_party/base/ptr_util.h"
+#include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fxcrt/cfx_read_only_span_stream.h"
+#include "core/fxcrt/fx_string_wrappers.h"
+#include "core/fxcrt/span.h"
 
-CFDF_Document::CFDF_Document()
-    : CPDF_IndirectObjectHolder(), m_pRootDict(nullptr) {}
+CFDF_Document::CFDF_Document() = default;
 
-CFDF_Document::~CFDF_Document() {}
+CFDF_Document::~CFDF_Document() = default;
 
 std::unique_ptr<CFDF_Document> CFDF_Document::CreateNewDoc() {
-  auto pDoc = pdfium::MakeUnique<CFDF_Document>();
-  pDoc->m_pRootDict = pDoc->NewIndirect<CPDF_Dictionary>();
-  pDoc->m_pRootDict->SetNewFor<CPDF_Dictionary>("FDF");
+  auto pDoc = std::make_unique<CFDF_Document>();
+  pDoc->root_dict_ = pDoc->NewIndirect<CPDF_Dictionary>();
+  pDoc->root_dict_->SetNewFor<CPDF_Dictionary>("FDF");
   return pDoc;
 }
 
-std::unique_ptr<CFDF_Document> CFDF_Document::ParseFile(
-    const CFX_RetainPtr<IFX_SeekableReadStream>& pFile) {
-  if (!pFile)
+std::unique_ptr<CFDF_Document> CFDF_Document::ParseMemory(
+    pdfium::span<const uint8_t> span) {
+  auto pDoc = std::make_unique<CFDF_Document>();
+  pDoc->ParseStream(pdfium::MakeRetain<CFX_ReadOnlySpanStream>(span));
+  if (!pDoc->root_dict_) {
     return nullptr;
-
-  auto pDoc = pdfium::MakeUnique<CFDF_Document>();
-  pDoc->ParseStream(pFile);
-  return pDoc->m_pRootDict ? std::move(pDoc) : nullptr;
+  }
+  return pDoc;
 }
 
-std::unique_ptr<CFDF_Document> CFDF_Document::ParseMemory(uint8_t* pData,
-                                                          uint32_t size) {
-  return CFDF_Document::ParseFile(IFX_MemoryStream::Create(pData, size));
-}
-
-void CFDF_Document::ParseStream(
-    const CFX_RetainPtr<IFX_SeekableReadStream>& pFile) {
-  m_pFile = pFile;
-  CPDF_SyntaxParser parser;
-  parser.InitParser(m_pFile, 0);
-  while (1) {
-    bool bNumber;
-    CFX_ByteString word = parser.GetNextWord(&bNumber);
-    if (bNumber) {
-      uint32_t objnum = FXSYS_atoui(word.c_str());
-      if (!objnum)
+void CFDF_Document::ParseStream(RetainPtr<IFX_SeekableReadStream> pFile) {
+  file_ = std::move(pFile);
+  CPDF_SyntaxParser parser(file_);
+  while (true) {
+    CPDF_SyntaxParser::WordResult word_result = parser.GetNextWord();
+    if (word_result.is_number) {
+      uint32_t objnum = FXSYS_atoui(word_result.word.c_str());
+      if (!objnum) {
         break;
+      }
 
-      word = parser.GetNextWord(&bNumber);
-      if (!bNumber)
+      word_result = parser.GetNextWord();
+      if (!word_result.is_number) {
         break;
+      }
 
-      word = parser.GetNextWord(nullptr);
-      if (word != "obj")
+      word_result = parser.GetNextWord();
+      if (word_result.word != "obj") {
         break;
+      }
 
-      std::unique_ptr<CPDF_Object> pObj =
-          parser.GetObject(this, objnum, 0, true);
-      if (!pObj)
+      RetainPtr<CPDF_Object> pObj = parser.GetObjectBody(this);
+      if (!pObj) {
         break;
+      }
 
       ReplaceIndirectObjectIfHigherGeneration(objnum, std::move(pObj));
-      word = parser.GetNextWord(nullptr);
-      if (word != "endobj")
+      word_result = parser.GetNextWord();
+      if (word_result.word != "endobj") {
         break;
+      }
     } else {
-      if (word != "trailer")
+      if (word_result.word != "trailer") {
         break;
+      }
 
-      std::unique_ptr<CPDF_Dictionary> pMainDict =
-          ToDictionary(parser.GetObject(this, 0, 0, true));
-      if (pMainDict)
-        m_pRootDict = pMainDict->GetDictFor("Root");
+      RetainPtr<CPDF_Dictionary> pMainDict =
+          ToDictionary(parser.GetObjectBody(this));
+      if (pMainDict) {
+        root_dict_ = pMainDict->GetMutableDictFor("Root");
+      }
 
       break;
     }
   }
 }
 
-bool CFDF_Document::WriteBuf(CFX_ByteTextBuf& buf) const {
-  if (!m_pRootDict)
-    return false;
+ByteString CFDF_Document::WriteToString() const {
+  if (!root_dict_) {
+    return ByteString();
+  }
 
+  fxcrt::ostringstream buf;
   buf << "%FDF-1.2\r\n";
-  for (const auto& pair : *this)
+  for (const auto& pair : *this) {
     buf << pair.first << " 0 obj\r\n"
-        << pair.second.get() << "\r\nendobj\r\n\r\n";
+        << pair.second.Get() << "\r\nendobj\r\n\r\n";
+  }
 
-  buf << "trailer\r\n<</Root " << m_pRootDict->GetObjNum()
+  buf << "trailer\r\n<</Root " << root_dict_->GetObjNum()
       << " 0 R>>\r\n%%EOF\r\n";
-  return true;
+
+  return ByteString(buf);
 }

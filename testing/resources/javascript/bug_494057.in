@@ -87,8 +87,9 @@ endobj
   /JS 11 0 R
 >>
 endobj
-% JS program to exexute
+% JS program to execute
 {{object 11 0}} <<
+  {{streamlen}}
 >>
 stream
 function TestGetFieldWithDelay() {
@@ -109,8 +110,6 @@ TestGetFieldWithDelay();
 endstream
 endobj
 {{xref}}
-trailer <<
-  /Root 1 0 R
->>
+{{trailer}}
 {{startxref}}
 %%EOF

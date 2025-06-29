@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,29 @@
 #ifndef XFA_FXFA_PARSER_CXFA_IMAGE_H_
 #define XFA_FXFA_PARSER_CXFA_IMAGE_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Image : public CXFA_Data {
+class CXFA_Image final : public CXFA_Node {
  public:
-  CXFA_Image(CXFA_Node* pNode, bool bDefValue);
+  static CXFA_Image* FromNode(CXFA_Node* pNode);
 
-  int32_t GetAspect();
-  bool GetContentType(CFX_WideString& wsContentType);
-  bool GetHref(CFX_WideString& wsHref);
-  int32_t GetTransferEncoding();
-  bool GetContent(CFX_WideString& wsText);
-  bool SetContentType(const CFX_WideString& wsContentType);
-  bool SetHref(const CFX_WideString& wsHref);
-  bool SetTransferEncoding(int32_t iTransferEncoding);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Image() override;
 
- protected:
-  bool m_bDefValue;
+  XFA_AttributeValue GetAspect();
+  WideString GetContent();
+
+  WideString GetHref();
+  void SetHref(const WideString& wsHref);
+
+  XFA_AttributeValue GetTransferEncoding();
+  void SetTransferEncoding(XFA_AttributeValue iTransferEncoding);
+
+  WideString GetContentType();
+  void SetContentType(const WideString& wsContentType);
+
+ private:
+  CXFA_Image(CXFA_Document* doc, XFA_PacketType packet);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_IMAGE_H_

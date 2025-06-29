@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,174 +7,194 @@
 #ifndef CORE_FPDFTEXT_CPDF_TEXTPAGE_H_
 #define CORE_FPDFTEXT_CPDF_TEXTPAGE_H_
 
+#include <stdint.h>
+
 #include <deque>
+#include <functional>
+#include <optional>
 #include <vector>
 
-#include "core/fpdfapi/page/cpdf_pageobjectlist.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fpdfapi/page/cpdf_pageobjectholder.h"
+#include "core/fxcrt/data_vector.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxcrt/widestring.h"
+#include "core/fxcrt/widetext_buffer.h"
 
-class CPDF_Font;
 class CPDF_FormObject;
 class CPDF_Page;
 class CPDF_TextObject;
 
-#define FPDFTEXT_MATCHCASE 0x00000001
-#define FPDFTEXT_MATCHWHOLEWORD 0x00000002
-#define FPDFTEXT_CONSECUTIVE 0x00000004
-
-#define FPDFTEXT_CHAR_ERROR -1
-#define FPDFTEXT_CHAR_NORMAL 0
-#define FPDFTEXT_CHAR_GENERATED 1
-#define FPDFTEXT_CHAR_UNUNICODE 2
-#define FPDFTEXT_CHAR_HYPHEN 3
-#define FPDFTEXT_CHAR_PIECE 4
-
-#define TEXT_SPACE_CHAR L' '
-#define TEXT_LINEFEED_CHAR L'\n'
-#define TEXT_RETURN_CHAR L'\r'
-#define TEXT_EMPTY L""
-#define TEXT_SPACE L" "
-#define TEXT_RETURN_LINEFEED L"\r\n"
-#define TEXT_LINEFEED L"\n"
-#define TEXT_CHARRATIO_GAPDELTA 0.070
-
-enum class FPDFText_MarkedContent { Pass = 0, Done, Delay };
-
-enum class FPDFText_Direction { Left = -1, Right = 1 };
-
-class FPDF_CHAR_INFO {
- public:
-  FPDF_CHAR_INFO();
-  ~FPDF_CHAR_INFO();
-
-  FX_WCHAR m_Unicode;
-  FX_WCHAR m_Charcode;
-  int32_t m_Flag;
-  FX_FLOAT m_FontSize;
-  CFX_PointF m_Origin;
-  CFX_FloatRect m_CharBox;
-  CPDF_TextObject* m_pTextObj;
-  CFX_Matrix m_Matrix;
+struct TextPageCharSegment {
+  int index;
+  int count;
 };
 
-struct FPDF_SEGMENT {
-  int m_Start;
-  int m_nCount;
-};
-
-class PAGECHAR_INFO {
- public:
-  PAGECHAR_INFO();
-  PAGECHAR_INFO(const PAGECHAR_INFO&);
-  ~PAGECHAR_INFO();
-
-  int m_Index;
-  int m_CharCode;
-  FX_WCHAR m_Unicode;
-  int32_t m_Flag;
-  CFX_PointF m_Origin;
-  CFX_FloatRect m_CharBox;
-  CPDF_TextObject* m_pTextObj;
-  CFX_Matrix m_Matrix;
-};
-
-struct PDFTEXT_Obj {
-  CPDF_TextObject* m_pTextObj;
-  CFX_Matrix m_formMatrix;
-};
+FX_DATA_PARTITION_EXCEPTION(TextPageCharSegment);
 
 class CPDF_TextPage {
  public:
-  CPDF_TextPage(const CPDF_Page* pPage, FPDFText_Direction flags);
+  enum class CharType : uint8_t {
+    kNormal,
+    kGenerated,
+    kNotUnicode,
+    kHyphen,
+    kPiece,
+  };
+
+  class CharInfo {
+   public:
+    CharInfo();
+    CharInfo(CharType char_type,
+             uint32_t char_code,
+             wchar_t unicode,
+             CFX_PointF origin,
+             CFX_FloatRect char_box,
+             CFX_Matrix matrix,
+             CPDF_TextObject* text_object);
+    CharInfo(const CharInfo&);
+    ~CharInfo();
+
+    CharType char_type() const { return char_type_; }
+    void set_char_type(CharType char_type) { char_type_ = char_type; }
+
+    uint32_t char_code() const { return char_code_; }
+
+    wchar_t unicode() const { return unicode_; }
+    void set_unicode(wchar_t unicode) { unicode_ = unicode; }
+
+    const CFX_PointF& origin() const { return origin_; }
+
+    const CFX_FloatRect& char_box() const { return char_box_; }
+    const CFX_FloatRect& loose_char_box() const { return loose_char_box_; }
+
+    const CFX_Matrix& matrix() const { return matrix_; }
+
+    const CPDF_TextObject* text_object() const { return text_object_; }
+    CPDF_TextObject* text_object() { return text_object_; }
+
+   private:
+    CharType char_type_ = CharType::kNormal;
+    wchar_t unicode_ = 0;  // Above `char_code_` to potentially pack tighter.
+    uint32_t char_code_ = 0;
+    CFX_PointF origin_;
+    CFX_FloatRect char_box_;
+    CFX_FloatRect loose_char_box_;
+    CFX_Matrix matrix_;
+    UnownedPtr<CPDF_TextObject> text_object_;
+  };
+
+  CPDF_TextPage(const CPDF_Page* pPage, bool rtl);
   ~CPDF_TextPage();
 
-  // IPDF_TextPage:
-  void ParseTextPage();
-  bool IsParsed() const { return m_bIsParsed; }
-  int CharIndexFromTextIndex(int TextIndex) const;
-  int TextIndexFromCharIndex(int CharIndex) const;
+  int CharIndexFromTextIndex(int text_index) const;
+  int TextIndexFromCharIndex(int char_index) const;
+  size_t size() const { return char_list_.size(); }
   int CountChars() const;
-  void GetCharInfo(int index, FPDF_CHAR_INFO* info) const;
-  std::vector<CFX_FloatRect> GetRectArray(int start, int nCount) const;
-  int GetIndexAtPos(const CFX_PointF& point, const CFX_SizeF& tolerance) const;
-  CFX_WideString GetTextByRect(const CFX_FloatRect& rect) const;
-  CFX_WideString GetPageText(int start = 0, int nCount = -1) const;
-  int CountRects(int start, int nCount);
-  void GetRect(int rectIndex,
-               FX_FLOAT& left,
-               FX_FLOAT& top,
-               FX_FLOAT& right,
-               FX_FLOAT& bottom) const;
 
-  static bool IsRectIntersect(const CFX_FloatRect& rect1,
-                              const CFX_FloatRect& rect2);
+  // These methods CHECK() to make sure |index| is within bounds.
+  const CharInfo& GetCharInfo(size_t index) const;
+  CharInfo& GetCharInfo(size_t index);
+  float GetCharFontSize(size_t index) const;
+  CFX_FloatRect GetCharLooseBounds(size_t index) const;
+
+  std::vector<CFX_FloatRect> GetRectArray(int start, int count) const;
+  int GetIndexAtPos(const CFX_PointF& point, const CFX_SizeF& tolerance) const;
+  WideString GetTextByRect(const CFX_FloatRect& rect) const;
+  WideString GetTextByObject(const CPDF_TextObject* pTextObj) const;
+
+  // Returns string with the text from |text_buf_| that are covered by the input
+  // range. |start| and |count| are in terms of the |char_indices_|, so the
+  // range will be converted into appropriate indices.
+  WideString GetPageText(int start, int count) const;
+  WideString GetAllPageText() const { return GetPageText(0, CountChars()); }
+
+  int CountRects(int start, int nCount);
+  bool GetRect(int rectIndex, CFX_FloatRect* pRect) const;
 
  private:
   enum class TextOrientation {
-    Unknown,
-    Horizontal,
-    Vertical,
+    kUnknown,
+    kHorizontal,
+    kVertical,
   };
 
   enum class GenerateCharacter {
-    None,
-    Space,
-    LineBreak,
-    Hyphen,
+    kNone,
+    kSpace,
+    kLineBreak,
+    kHyphen,
   };
 
-  bool IsHyphen(FX_WCHAR curChar);
-  bool IsControlChar(const PAGECHAR_INFO& charInfo);
+  enum class MarkedContentState { kPass = 0, kDone, kDelay };
+
+  struct TransformedTextObject {
+    TransformedTextObject();
+    TransformedTextObject(const TransformedTextObject& that);
+    ~TransformedTextObject();
+
+    UnownedPtr<CPDF_TextObject> text_obj_;
+    CFX_Matrix form_matrix_;
+  };
+
+  void Init();
+  bool IsHyphen(wchar_t curChar) const;
   void ProcessObject();
   void ProcessFormObject(CPDF_FormObject* pFormObj,
-                         const CFX_Matrix& formMatrix);
-  void ProcessTextObject(PDFTEXT_Obj pObj);
+                         const CFX_Matrix& form_matrix);
+  void ProcessTextObject(const TransformedTextObject& obj);
   void ProcessTextObject(CPDF_TextObject* pTextObj,
-                         const CFX_Matrix& formMatrix,
-                         const CPDF_PageObjectList* pObjList,
-                         CPDF_PageObjectList::const_iterator ObjPos);
+                         const CFX_Matrix& form_matrix,
+                         const CPDF_PageObjectHolder* pObjList,
+                         CPDF_PageObjectHolder::const_iterator ObjPos);
   GenerateCharacter ProcessInsertObject(const CPDF_TextObject* pObj,
-                                        const CFX_Matrix& formMatrix);
-  bool GenerateCharInfo(FX_WCHAR unicode, PAGECHAR_INFO& info);
+                                        const CFX_Matrix& form_matrix);
+  // Returns whether to continue or not.
+  bool ProcessGenerateCharacter(GenerateCharacter type,
+                                const CPDF_TextObject* text_object,
+                                const CFX_Matrix& form_matrix);
+  void ProcessTextObjectItems(CPDF_TextObject* text_object,
+                              const CFX_Matrix& form_matrix,
+                              const CFX_Matrix& matrix);
+  const CharInfo* GetPrevCharInfo() const;
+  std::optional<CharInfo> GenerateCharInfo(wchar_t unicode,
+                                           const CFX_Matrix& form_matrix);
   bool IsSameAsPreTextObject(CPDF_TextObject* pTextObj,
-                             const CPDF_PageObjectList* pObjList,
-                             CPDF_PageObjectList::const_iterator ObjPos);
-  bool IsSameTextObject(CPDF_TextObject* pTextObj1, CPDF_TextObject* pTextObj2);
-  int GetCharWidth(uint32_t charCode, CPDF_Font* pFont) const;
+                             const CPDF_PageObjectHolder* pObjList,
+                             CPDF_PageObjectHolder::const_iterator iter) const;
+  bool IsSameTextObject(CPDF_TextObject* pTextObj1,
+                        CPDF_TextObject* pTextObj2) const;
   void CloseTempLine();
-  FPDFText_MarkedContent PreMarkedContent(PDFTEXT_Obj pObj);
-  void ProcessMarkedContent(PDFTEXT_Obj pObj);
-  void CheckMarkedContentObject(int32_t& start, int32_t& nCount) const;
+  MarkedContentState PreMarkedContent(const CPDF_TextObject* pTextObj);
+  void ProcessMarkedContent(const TransformedTextObject& obj);
   void FindPreviousTextObject();
-  void AddCharInfoByLRDirection(FX_WCHAR wChar, PAGECHAR_INFO info);
-  void AddCharInfoByRLDirection(FX_WCHAR wChar, PAGECHAR_INFO info);
+  void AddCharInfoByLRDirection(wchar_t wChar, const CharInfo& info);
+  void AddCharInfoByRLDirection(wchar_t wChar, const CharInfo& info);
   TextOrientation GetTextObjectWritingMode(
       const CPDF_TextObject* pTextObj) const;
   TextOrientation FindTextlineFlowOrientation() const;
-  void AppendGeneratedCharacter(FX_WCHAR unicode, const CFX_Matrix& formMatrix);
+  void AppendGeneratedCharacter(wchar_t unicode,
+                                const CFX_Matrix& form_matrix,
+                                bool use_temp_buffer);
+  void SwapTempTextBuf(size_t iCharListStartAppend, size_t iBufStartAppend);
+  WideString GetTextByPredicate(
+      const std::function<bool(const CharInfo&)>& predicate) const;
 
-  void SwapTempTextBuf(int32_t iCharListStartAppend, int32_t iBufStartAppend);
-  bool IsRightToLeft(const CPDF_TextObject* pTextObj,
-                     const CPDF_Font* pFont,
-                     int nItems) const;
-
-  const CPDF_Page* const m_pPage;
-  std::vector<uint16_t> m_CharIndex;
-  std::deque<PAGECHAR_INFO> m_CharList;
-  std::deque<PAGECHAR_INFO> m_TempCharList;
-  CFX_WideTextBuf m_TextBuf;
-  CFX_WideTextBuf m_TempTextBuf;
-  const FPDFText_Direction m_parserflag;
-  CPDF_TextObject* m_pPreTextObj;
-  CFX_Matrix m_perMatrix;
-  bool m_bIsParsed;
-  CFX_Matrix m_DisplayMatrix;
-  std::vector<CFX_FloatRect> m_SelRects;
-  std::vector<PDFTEXT_Obj> m_LineObj;
-  TextOrientation m_TextlineDir;
-  CFX_FloatRect m_CurlineRect;
+  UnownedPtr<const CPDF_Page> const page_;
+  DataVector<TextPageCharSegment> char_indices_;
+  std::deque<CharInfo> char_list_;
+  std::deque<CharInfo> temp_char_list_;
+  WideTextBuffer text_buf_;
+  WideTextBuffer temp_text_buf_;
+  UnownedPtr<const CPDF_TextObject> prev_text_obj_;
+  CFX_Matrix prev_matrix_;
+  const bool rtl_;
+  const CFX_Matrix display_matrix_;
+  std::vector<CFX_FloatRect> sel_rects_;
+  std::vector<TransformedTextObject> mTextObjects;
+  TextOrientation textline_dir_ = TextOrientation::kUnknown;
+  CFX_FloatRect curline_rect_;
 };
 
 #endif  // CORE_FPDFTEXT_CPDF_TEXTPAGE_H_

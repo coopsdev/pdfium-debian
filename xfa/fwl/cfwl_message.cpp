@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,11 @@
 
 #include "xfa/fwl/cfwl_message.h"
 
-CFWL_Message::CFWL_Message(CFWL_Message::Type type)
-    : CFWL_Message(type, nullptr, nullptr) {}
+namespace pdfium {
 
-CFWL_Message::CFWL_Message(Type type, CFWL_Widget* pSrcTarget)
-    : CFWL_Message(type, pSrcTarget, nullptr) {}
+CFWL_Message::CFWL_Message(Type type, CFWL_Widget* pDstTarget)
+    : type_(type), dst_target_(pDstTarget) {}
 
-CFWL_Message::CFWL_Message(Type type,
-                           CFWL_Widget* pSrcTarget,
-                           CFWL_Widget* pDstTarget)
-    : m_pSrcTarget(pSrcTarget), m_pDstTarget(pDstTarget), m_type(type) {}
+CFWL_Message::~CFWL_Message() = default;
 
-CFWL_Message::~CFWL_Message() {}
-
-std::unique_ptr<CFWL_Message> CFWL_Message::Clone() {
-  return nullptr;
-}
+}  // namespace pdfium

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,78 +8,129 @@
 #define CORE_FPDFAPI_PAGE_CPDF_DOCPAGEDATA_H_
 
 #include <map>
+#include <memory>
 #include <set>
 
-#include "core/fpdfapi/page/cpdf_countedobject.h"
+#include "core/fpdfapi/font/cpdf_font.h"
+#include "core/fpdfapi/page/cpdf_colorspace.h"
+#include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/data_vector.h"
+#include "core/fxcrt/fx_codepage_forward.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
 
+class CFX_Font;
 class CPDF_Dictionary;
-class CPDF_Document;
-class CPDF_Font;
 class CPDF_FontEncoding;
 class CPDF_IccProfile;
 class CPDF_Image;
 class CPDF_Object;
+class CPDF_Pattern;
 class CPDF_Stream;
 class CPDF_StreamAcc;
 
-class CPDF_DocPageData {
+class CPDF_DocPageData final : public CPDF_Document::PageDataIface,
+                               public CPDF_Font::FormFactoryIface {
  public:
-  explicit CPDF_DocPageData(CPDF_Document* pPDFDoc);
-  ~CPDF_DocPageData();
+  static CPDF_DocPageData* FromDocument(const CPDF_Document* pDoc);
 
-  void Clear(bool bRelease = false);
-  CPDF_Font* GetFont(CPDF_Dictionary* pFontDict);
-  CPDF_Font* GetStandardFont(const CFX_ByteString& fontName,
-                             CPDF_FontEncoding* pEncoding);
-  void ReleaseFont(const CPDF_Dictionary* pFontDict);
-  CPDF_ColorSpace* GetColorSpace(CPDF_Object* pCSObj,
-                                 const CPDF_Dictionary* pResources);
-  CPDF_ColorSpace* GetCopiedColorSpace(CPDF_Object* pCSObj);
-  void ReleaseColorSpace(const CPDF_Object* pColorSpace);
-  CPDF_Pattern* GetPattern(CPDF_Object* pPatternObj,
-                           bool bShading,
-                           const CFX_Matrix& matrix);
-  void ReleasePattern(const CPDF_Object* pPatternObj);
-  CPDF_Image* GetImage(uint32_t dwStreamObjNum);
-  void ReleaseImage(uint32_t dwStreamObjNum);
-  CPDF_IccProfile* GetIccProfile(CPDF_Stream* pIccProfileStream);
-  void ReleaseIccProfile(const CPDF_IccProfile* pIccProfile);
-  CPDF_StreamAcc* GetFontFileStreamAcc(CPDF_Stream* pFontStream);
-  void ReleaseFontFileStreamAcc(const CPDF_Stream* pFontStream);
-  bool IsForceClear() const { return m_bForceClear; }
-  CPDF_CountedColorSpace* FindColorSpacePtr(CPDF_Object* pCSObj) const;
-  CPDF_CountedPattern* FindPatternPtr(CPDF_Object* pPatternObj) const;
+  CPDF_DocPageData();
+  ~CPDF_DocPageData() override;
+
+  // CPDF_Document::PageDataIface:
+  void ClearStockFont() override;
+  RetainPtr<CPDF_StreamAcc> GetFontFileStreamAcc(
+      RetainPtr<const CPDF_Stream> font_stream) override;
+  void MaybePurgeFontFileStreamAcc(
+      RetainPtr<CPDF_StreamAcc>&& pStreamAcc) override;
+  void MaybePurgeImage(uint32_t dwStreamObjNum) override;
+
+  // CPDF_Font::FormFactoryIFace:
+  std::unique_ptr<CPDF_Font::FormIface> CreateForm(
+      CPDF_Document* document,
+      RetainPtr<CPDF_Dictionary> pPageResources,
+      RetainPtr<CPDF_Stream> pFormStream) override;
+
+  bool IsForceClear() const { return force_clear_; }
+
+  RetainPtr<CPDF_Font> AddFont(std::unique_ptr<CFX_Font> font,
+                               FX_Charset charset);
+  RetainPtr<CPDF_Font> GetFont(RetainPtr<CPDF_Dictionary> font_dict);
+  RetainPtr<CPDF_Font> AddStandardFont(const ByteString& fontName,
+                                       const CPDF_FontEncoding* pEncoding);
+  RetainPtr<CPDF_Font> GetStandardFont(const ByteString& fontName,
+                                       const CPDF_FontEncoding* pEncoding);
+#if BUILDFLAG(IS_WIN)
+  RetainPtr<CPDF_Font> AddWindowsFont(LOGFONTA* pLogFont);
+#endif
+
+  // Loads a colorspace.
+  RetainPtr<CPDF_ColorSpace> GetColorSpace(const CPDF_Object* pCSObj,
+                                           const CPDF_Dictionary* pResources);
+
+  // Loads a colorspace in a context that might be while loading another
+  // colorspace. |pVisited| is passed recursively to avoid circular calls
+  // involving CPDF_ColorSpace::Load().
+  RetainPtr<CPDF_ColorSpace> GetColorSpaceGuarded(
+      const CPDF_Object* pCSObj,
+      const CPDF_Dictionary* pResources,
+      std::set<const CPDF_Object*>* pVisited);
+
+  RetainPtr<CPDF_Pattern> GetPattern(RetainPtr<CPDF_Object> pPatternObj,
+                                     const CFX_Matrix& matrix);
+  RetainPtr<CPDF_ShadingPattern> GetShading(RetainPtr<CPDF_Object> pPatternObj,
+                                            const CFX_Matrix& matrix);
+
+  RetainPtr<CPDF_Image> GetImage(uint32_t dwStreamObjNum);
+
+  RetainPtr<CPDF_IccProfile> GetIccProfile(
+      RetainPtr<const CPDF_Stream> pProfileStream);
 
  private:
-  using CPDF_CountedFont = CPDF_CountedObject<CPDF_Font>;
-  using CPDF_CountedIccProfile = CPDF_CountedObject<CPDF_IccProfile>;
-  using CPDF_CountedImage = CPDF_CountedObject<CPDF_Image>;
-  using CPDF_CountedStreamAcc = CPDF_CountedObject<CPDF_StreamAcc>;
+  struct HashIccProfileKey {
+    HashIccProfileKey(DataVector<uint8_t> digest, uint32_t components);
+    HashIccProfileKey(const HashIccProfileKey& that);
+    ~HashIccProfileKey();
 
-  using CPDF_ColorSpaceMap =
-      std::map<const CPDF_Object*, CPDF_CountedColorSpace*>;
-  using CPDF_FontFileMap = std::map<const CPDF_Stream*, CPDF_CountedStreamAcc*>;
-  using CPDF_FontMap = std::map<const CPDF_Dictionary*, CPDF_CountedFont*>;
-  using CPDF_IccProfileMap =
-      std::map<const CPDF_Stream*, CPDF_CountedIccProfile*>;
-  using CPDF_ImageMap = std::map<uint32_t, CPDF_CountedImage*>;
-  using CPDF_PatternMap = std::map<const CPDF_Object*, CPDF_CountedPattern*>;
+    bool operator<(const HashIccProfileKey& other) const;
 
-  CPDF_ColorSpace* GetColorSpaceImpl(CPDF_Object* pCSObj,
-                                     const CPDF_Dictionary* pResources,
-                                     std::set<CPDF_Object*>* pVisited);
+    DataVector<uint8_t> digest;
+    uint32_t components;
+  };
 
-  CPDF_Document* const m_pPDFDoc;
-  bool m_bForceClear;
-  std::map<CFX_ByteString, CPDF_Stream*> m_HashProfileMap;
-  CPDF_ColorSpaceMap m_ColorSpaceMap;
-  CPDF_FontFileMap m_FontFileMap;
-  CPDF_FontMap m_FontMap;
-  CPDF_IccProfileMap m_IccProfileMap;
-  CPDF_ImageMap m_ImageMap;
-  CPDF_PatternMap m_PatternMap;
+  // Loads a colorspace in a context that might be while loading another
+  // colorspace, or even in a recursive call from this method itself. |pVisited|
+  // is passed recursively to avoid circular calls involving
+  // CPDF_ColorSpace::Load() and |pVisitedInternal| is also passed recursively
+  // to avoid circular calls with this method calling itself.
+  RetainPtr<CPDF_ColorSpace> GetColorSpaceInternal(
+      const CPDF_Object* pCSObj,
+      const CPDF_Dictionary* pResources,
+      std::set<const CPDF_Object*>* pVisited,
+      std::set<const CPDF_Object*>* pVisitedInternal);
+
+  size_t CalculateEncodingDict(FX_Charset charset, CPDF_Dictionary* pBaseDict);
+  RetainPtr<CPDF_Dictionary> ProcessbCJK(
+      RetainPtr<CPDF_Dictionary> pBaseDict,
+      FX_Charset charset,
+      ByteString basefont,
+      std::function<void(wchar_t, wchar_t, CPDF_Array*)> Insert);
+
+  bool force_clear_ = false;
+
+  // Specific destruction order may be required between maps.
+  std::map<HashIccProfileKey, RetainPtr<const CPDF_Stream>>
+      hash_icc_profile_map_;
+  std::map<RetainPtr<const CPDF_Array>, RetainPtr<CPDF_ColorSpace>>
+      color_space_map_;
+  std::map<RetainPtr<const CPDF_Stream>, RetainPtr<CPDF_StreamAcc>>
+      font_file_map_;
+  std::map<RetainPtr<const CPDF_Stream>, RetainPtr<CPDF_IccProfile>>
+      icc_profile_map_;
+  std::map<RetainPtr<const CPDF_Object>, RetainPtr<CPDF_Pattern>> pattern_map_;
+  std::map<uint32_t, RetainPtr<CPDF_Image>> image_map_;
+  std::map<RetainPtr<const CPDF_Dictionary>, RetainPtr<CPDF_Font>> font_map_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_DOCPAGEDATA_H_

@@ -1,57 +1,70 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "core/fpdfapi/parser/cpdf_number.h"
-#include "third_party/base/ptr_util.h"
 
-CPDF_Number::CPDF_Number() : m_bInteger(true), m_Integer(0) {}
+#include <sstream>
 
-CPDF_Number::CPDF_Number(int value) : m_bInteger(true), m_Integer(value) {}
+#include "core/fpdfapi/edit/cpdf_contentstream_write_utils.h"
+#include "core/fxcrt/fx_stream.h"
+#include "core/fxcrt/fx_string_wrappers.h"
 
-CPDF_Number::CPDF_Number(FX_FLOAT value) : m_bInteger(false), m_Float(value) {}
+namespace {
 
-CPDF_Number::CPDF_Number(const CFX_ByteStringC& str)
-    : m_bInteger(FX_atonum(str, &m_Integer)) {}
+ByteString FloatToString(float value) {
+  fxcrt::ostringstream sstream;
+  WriteFloat(sstream, value);
+  return ByteString(sstream);
+}
 
-CPDF_Number::~CPDF_Number() {}
+}  // namespace
+
+CPDF_Number::CPDF_Number() = default;
+
+CPDF_Number::CPDF_Number(int value) : number_(value) {}
+
+CPDF_Number::CPDF_Number(float value) : number_(value) {}
+
+CPDF_Number::CPDF_Number(ByteStringView str) : number_(str) {}
+
+CPDF_Number::~CPDF_Number() = default;
 
 CPDF_Object::Type CPDF_Number::GetType() const {
-  return NUMBER;
+  return kNumber;
 }
 
-std::unique_ptr<CPDF_Object> CPDF_Number::Clone() const {
-  return m_bInteger ? pdfium::MakeUnique<CPDF_Number>(m_Integer)
-                    : pdfium::MakeUnique<CPDF_Number>(m_Float);
+RetainPtr<CPDF_Object> CPDF_Number::Clone() const {
+  return number_.IsInteger()
+             ? pdfium::MakeRetain<CPDF_Number>(number_.GetSigned())
+             : pdfium::MakeRetain<CPDF_Number>(number_.GetFloat());
 }
 
-FX_FLOAT CPDF_Number::GetNumber() const {
-  return m_bInteger ? static_cast<FX_FLOAT>(m_Integer) : m_Float;
+float CPDF_Number::GetNumber() const {
+  return number_.GetFloat();
 }
 
 int CPDF_Number::GetInteger() const {
-  return m_bInteger ? m_Integer : static_cast<int>(m_Float);
+  return number_.GetSigned();
 }
 
-bool CPDF_Number::IsNumber() const {
-  return true;
-}
-
-CPDF_Number* CPDF_Number::AsNumber() {
+CPDF_Number* CPDF_Number::AsMutableNumber() {
   return this;
 }
 
-const CPDF_Number* CPDF_Number::AsNumber() const {
-  return this;
+void CPDF_Number::SetString(const ByteString& str) {
+  number_ = FX_Number(str.AsStringView());
 }
 
-void CPDF_Number::SetString(const CFX_ByteString& str) {
-  m_bInteger = FX_atonum(str.AsStringC(), &m_Integer);
+ByteString CPDF_Number::GetString() const {
+  return number_.IsInteger() ? ByteString::FormatInteger(number_.GetSigned())
+                             : FloatToString(GetNumber());
 }
 
-CFX_ByteString CPDF_Number::GetString() const {
-  return m_bInteger ? CFX_ByteString::FormatInteger(m_Integer, FXFORMAT_SIGNED)
-                    : CFX_ByteString::FormatFloat(m_Float);
+bool CPDF_Number::WriteTo(IFX_ArchiveStream* archive,
+                          const CPDF_Encryptor* encryptor) const {
+  return archive->WriteString(" ") &&
+         archive->WriteString(GetString().AsStringView());
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,21 @@
 #ifndef XFA_FGAS_LAYOUT_FGAS_LINEBREAK_H_
 #define XFA_FGAS_LAYOUT_FGAS_LINEBREAK_H_
 
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fgas/crt/fgas_utils.h"
+#include <stdint.h>
 
-enum FX_LINEBREAKTYPE : uint8_t {
-  FX_LBT_UNKNOWN = 0x00,
-  FX_LBT_DIRECT_BRK = 0x1A,
-  FX_LBT_INDIRECT_BRK = 0x2B,
-  FX_LBT_COM_INDIRECT_BRK = 0x3C,
-  FX_LBT_COM_PROHIBITED_BRK = 0x4D,
-  FX_LBT_PROHIBITED_BRK = 0x5E,
-  FX_LBT_HANGUL_SPACE_BRK = 0x6F,
+#include "core/fxcrt/fx_unicode.h"
+
+enum class FX_LINEBREAKTYPE : uint8_t {
+  kUNKNOWN = 0x00,
+  kDIRECT_BRK = 0x1A,
+  kINDIRECT_BRK = 0x2B,
+  kCOM_INDIRECT_BRK = 0x3C,
+  kCOM_PROHIBITED_BRK = 0x4D,
+  kPROHIBITED_BRK = 0x5E,
+  kHANGUL_SPACE_BRK = 0x6F,
 };
 
-#define FX_LBUN FX_LBT_UNKNOWN
-#define FX_LBDB FX_LBT_DIRECT_BRK
-#define FX_LBIB FX_LBT_INDIRECT_BRK
-#define FX_LBCB FX_LBT_COM_INDIRECT_BRK
-#define FX_LBCP FX_LBT_COM_PROHIBITED_BRK
-#define FX_LBPB FX_LBT_PROHIBITED_BRK
-#define FX_LBHS FX_LBT_HANGUL_SPACE_BRK
-
-extern const FX_LINEBREAKTYPE gs_FX_LineBreak_PairTable[64][32];
+FX_LINEBREAKTYPE GetLineBreakTypeFromPair(FX_BREAKPROPERTY curr_char,
+                                          FX_BREAKPROPERTY next_char);
 
 #endif  // XFA_FGAS_LAYOUT_FGAS_LINEBREAK_H_

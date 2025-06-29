@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,45 +8,42 @@
 #define CORE_FXGE_ANDROID_CFPF_SKIAFONTMGR_H_
 
 #include <map>
+#include <memory>
 #include <vector>
 
-#include "core/fxcrt/fx_stream.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxge/fx_font.h"
-
-#define FPF_MATCHFONT_REPLACEANSI 1
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/fx_codepage_forward.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxge/cfx_face.h"
+#include "core/fxge/freetype/fx_freetype.h"
 
 class CFPF_SkiaFont;
-class CFPF_SkiaFontDescriptor;
+class CFPF_SkiaPathFont;
 
 class CFPF_SkiaFontMgr {
  public:
   CFPF_SkiaFontMgr();
   ~CFPF_SkiaFontMgr();
 
-  void LoadSystemFonts();
-  CFPF_SkiaFont* CreateFont(const CFX_ByteStringC& bsFamilyname,
-                            uint8_t uCharset,
-                            uint32_t dwStyle,
-                            uint32_t dwMatch = 0);
+  void LoadFonts(const char** user_paths);
+  CFPF_SkiaFont* CreateFont(ByteStringView family_name,
+                            FX_Charset charset,
+                            uint32_t style);
 
   bool InitFTLibrary();
-  FXFT_Face GetFontFace(const CFX_RetainPtr<IFX_SeekableReadStream>& pFileRead,
-                        int32_t iFaceIndex = 0);
-  FXFT_Face GetFontFace(const CFX_ByteStringC& bsFile, int32_t iFaceIndex = 0);
-  FXFT_Face GetFontFace(const uint8_t* pBuffer,
-                        size_t szBuffer,
-                        int32_t iFaceIndex = 0);
+  RetainPtr<CFX_Face> GetFontFace(ByteStringView path, int32_t face_index);
 
  private:
-  void ScanPath(const CFX_ByteString& path);
-  void ScanFile(const CFX_ByteString& file);
-  void ReportFace(FXFT_Face face, CFPF_SkiaFontDescriptor* pFontDesc);
+  void ScanPath(const ByteString& path);
+  void ScanFile(const ByteString& file);
+  std::unique_ptr<CFPF_SkiaPathFont> ReportFace(RetainPtr<CFX_Face> face,
+                                                const ByteString& file);
 
-  bool m_bLoaded;
-  FXFT_Library m_FTLibrary;
-  std::vector<CFPF_SkiaFontDescriptor*> m_FontFaces;
-  std::map<uint32_t, CFPF_SkiaFont*> m_FamilyFonts;
+  bool loaded_fonts_ = false;
+  ScopedFXFTLibraryRec ft_library_;
+  std::vector<std::unique_ptr<CFPF_SkiaPathFont>> font_faces_;
+  // Key is a hash based on CreateFont() parameters.
+  std::map<uint32_t, std::unique_ptr<CFPF_SkiaFont>> family_font_map_;
 };
 
 #endif  // CORE_FXGE_ANDROID_CFPF_SKIAFONTMGR_H_

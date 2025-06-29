@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,17 @@
 
 #include "xfa/fwl/cfwl_messagekey.h"
 
-#include <memory>
+namespace pdfium {
 
-#include "third_party/base/ptr_util.h"
+CFWL_MessageKey::CFWL_MessageKey(CFWL_Widget* pDstTarget,
+                                 KeyCommand cmd,
+                                 Mask<XFA_FWL_KeyFlag> flags,
+                                 uint32_t dwKeyCodeOrChar)
+    : CFWL_Message(CFWL_Message::Type::kKey, pDstTarget),
+      cmd_(cmd),
+      flags_(flags),
+      key_code_or_char_(dwKeyCodeOrChar) {}
 
-CFWL_MessageKey::CFWL_MessageKey(CFWL_Widget* pSrcTarget,
-                                 CFWL_Widget* pDstTarget)
-    : CFWL_Message(CFWL_Message::Type::Key, pSrcTarget, pDstTarget) {}
+CFWL_MessageKey::~CFWL_MessageKey() = default;
 
-CFWL_MessageKey::~CFWL_MessageKey() {}
-
-std::unique_ptr<CFWL_Message> CFWL_MessageKey::Clone() {
-  return pdfium::MakeUnique<CFWL_MessageKey>(*this);
-}
+}  // namespace pdfium

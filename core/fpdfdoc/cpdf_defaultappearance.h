@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,46 +7,40 @@
 #ifndef CORE_FPDFDOC_CPDF_DEFAULTAPPEARANCE_H_
 #define CORE_FPDFDOC_CPDF_DEFAULTAPPEARANCE_H_
 
-#include "core/fpdfdoc/cpdf_defaultappearance.h"
-#include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
-#include "core/fxge/fx_dib.h"
+#include <optional>
 
-enum class BorderStyle { SOLID, DASH, BEVELED, INSET, UNDERLINE };
-enum class PaintOperation { STROKE, FILL };
+#include "core/fxcrt/bytestring.h"
+#include "core/fxge/cfx_color.h"
+
+class CPDF_Dictionary;
+class CPDF_SimpleParser;
 
 class CPDF_DefaultAppearance {
  public:
-  CPDF_DefaultAppearance() {}
-  explicit CPDF_DefaultAppearance(const CFX_ByteString& csDA) : m_csDA(csDA) {}
+  struct FontNameAndSize {
+    ByteString name;
+    float size = 0;  // Defaults to 0 if not found.
+  };
 
-  CPDF_DefaultAppearance(const CPDF_DefaultAppearance& cDA) {
-    m_csDA = cDA.GetStr();
-  }
+  explicit CPDF_DefaultAppearance(const ByteString& csDA);
+  CPDF_DefaultAppearance(const CPDF_Dictionary* annot_dict,
+                         const CPDF_Dictionary* acroform_dict);
+  CPDF_DefaultAppearance(const CPDF_DefaultAppearance&) = delete;
+  CPDF_DefaultAppearance& operator=(const CPDF_DefaultAppearance&) = delete;
+  ~CPDF_DefaultAppearance();
 
-  CFX_ByteString GetStr() const { return m_csDA; }
+  std::optional<FontNameAndSize> GetFont() const;
+  float GetFontSizeOrZero() const;
 
-  bool HasFont();
-  CFX_ByteString GetFontString();
-  void GetFont(CFX_ByteString& csFontNameTag, FX_FLOAT& fFontSize);
+  std::optional<CFX_Color> GetColor() const;
+  std::optional<CFX_Color::TypeAndARGB> GetColorARGB() const;
 
-  bool HasColor(PaintOperation nOperation = PaintOperation::FILL);
-  CFX_ByteString GetColorString(
-      PaintOperation nOperation = PaintOperation::FILL);
-  void GetColor(int& iColorType,
-                FX_FLOAT fc[4],
-                PaintOperation nOperation = PaintOperation::FILL);
-  void GetColor(FX_ARGB& color,
-                int& iColorType,
-                PaintOperation nOperation = PaintOperation::FILL);
-
-  bool HasTextMatrix();
-  CFX_ByteString GetTextMatrixString();
-  CFX_Matrix GetTextMatrix();
+  static bool FindTagParamFromStartForTesting(CPDF_SimpleParser* parser,
+                                              ByteStringView token,
+                                              int nParams);
 
  private:
-  CFX_ByteString m_csDA;
+  const ByteString da_;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_DEFAULTAPPEARANCE_H_

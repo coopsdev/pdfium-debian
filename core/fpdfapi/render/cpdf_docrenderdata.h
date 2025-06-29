@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,37 +7,63 @@
 #ifndef CORE_FPDFAPI_RENDER_CPDF_DOCRENDERDATA_H_
 #define CORE_FPDFAPI_RENDER_CPDF_DOCRENDERDATA_H_
 
+#include <functional>
 #include <map>
 
-#include "core/fpdfapi/page/cpdf_countedobject.h"
+#include "build/build_config.h"
+#include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fxcrt/observed_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CPDF_Document;
+#if BUILDFLAG(IS_WIN)
+#include <memory>
+#endif
+
 class CPDF_Font;
 class CPDF_Object;
 class CPDF_TransferFunc;
 class CPDF_Type3Cache;
 class CPDF_Type3Font;
 
-class CPDF_DocRenderData {
- public:
-  explicit CPDF_DocRenderData(CPDF_Document* pPDFDoc);
-  ~CPDF_DocRenderData();
+#if BUILDFLAG(IS_WIN)
+class CFX_PSFontTracker;
+#endif
 
-  CPDF_Type3Cache* GetCachedType3(CPDF_Type3Font* pFont);
-  void ReleaseCachedType3(CPDF_Type3Font* pFont);
-  CPDF_TransferFunc* GetTransferFunc(CPDF_Object* pObj);
-  void ReleaseTransferFunc(CPDF_Object* pObj);
-  void Clear(bool bRelease);
+class CPDF_DocRenderData : public CPDF_Document::RenderDataIface {
+ public:
+  static CPDF_DocRenderData* FromDocument(const CPDF_Document* pDoc);
+
+  CPDF_DocRenderData();
+  ~CPDF_DocRenderData() override;
+
+  CPDF_DocRenderData(const CPDF_DocRenderData&) = delete;
+  CPDF_DocRenderData& operator=(const CPDF_DocRenderData&) = delete;
+
+  // The argument to these methods must be non-null.
+  RetainPtr<CPDF_Type3Cache> GetCachedType3(CPDF_Type3Font* font);
+  RetainPtr<CPDF_TransferFunc> GetTransferFunc(
+      RetainPtr<const CPDF_Object> obj);
+
+#if BUILDFLAG(IS_WIN)
+  CFX_PSFontTracker* GetPSFontTracker();
+#endif
+
+ protected:
+  // protected for use by test subclasses.
+  RetainPtr<CPDF_TransferFunc> CreateTransferFunc(
+      RetainPtr<const CPDF_Object> pObj) const;
 
  private:
-  using CPDF_Type3CacheMap =
-      std::map<CPDF_Font*, CPDF_CountedObject<CPDF_Type3Cache>*>;
-  using CPDF_TransferFuncMap =
-      std::map<CPDF_Object*, CPDF_CountedObject<CPDF_TransferFunc>*>;
+  // TODO(tsepez): investigate this map outliving its font keys.
+  std::map<CPDF_Font*, ObservedPtr<CPDF_Type3Cache>> type3_face_map_;
+  std::map<RetainPtr<const CPDF_Object>,
+           ObservedPtr<CPDF_TransferFunc>,
+           std::less<>>
+      transfer_func_map_;
 
-  CPDF_Document* m_pPDFDoc;  // Not Owned
-  CPDF_Type3CacheMap m_Type3FaceMap;
-  CPDF_TransferFuncMap m_TransferFuncMap;
+#if BUILDFLAG(IS_WIN)
+  std::unique_ptr<CFX_PSFontTracker> psfont_tracker_;
+#endif
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_DOCRENDERDATA_H_

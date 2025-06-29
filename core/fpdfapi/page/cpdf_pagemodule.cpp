@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,30 +6,23 @@
 
 #include "core/fpdfapi/page/cpdf_pagemodule.h"
 
-CPDF_PageModule::CPDF_PageModule()
-    : m_StockGrayCS(nullptr, PDFCS_DEVICEGRAY),
-      m_StockRGBCS(nullptr, PDFCS_DEVICERGB),
-      m_StockCMYKCS(nullptr, PDFCS_DEVICECMYK),
-      m_StockPatternCS(nullptr) {}
+#include "core/fpdfapi/font/cpdf_fontglobals.h"
+#include "core/fpdfapi/page/cpdf_colorspace.h"
+#include "core/fpdfapi/page/cpdf_streamcontentparser.h"
 
-CPDF_PageModule::~CPDF_PageModule() {}
+namespace pdfium {
 
-CPDF_FontGlobals* CPDF_PageModule::GetFontGlobals() {
-  return &m_FontGlobals;
+void InitializePageModule() {
+  CPDF_ColorSpace::InitializeGlobals();
+  CPDF_FontGlobals::Create();
+  CPDF_FontGlobals::GetInstance()->LoadEmbeddedMaps();
+  CPDF_StreamContentParser::InitializeGlobals();
 }
 
-CPDF_ColorSpace* CPDF_PageModule::GetStockCS(int family) {
-  if (family == PDFCS_DEVICEGRAY)
-    return &m_StockGrayCS;
-  if (family == PDFCS_DEVICERGB)
-    return &m_StockRGBCS;
-  if (family == PDFCS_DEVICECMYK)
-    return &m_StockCMYKCS;
-  if (family == PDFCS_PATTERN)
-    return &m_StockPatternCS;
-  return nullptr;
+void DestroyPageModule() {
+  CPDF_StreamContentParser::DestroyGlobals();
+  CPDF_FontGlobals::Destroy();
+  CPDF_ColorSpace::DestroyGlobals();
 }
 
-void CPDF_PageModule::ClearStockFont(CPDF_Document* pDoc) {
-  m_FontGlobals.Clear(pDoc);
-}
+}  // namespace pdfium

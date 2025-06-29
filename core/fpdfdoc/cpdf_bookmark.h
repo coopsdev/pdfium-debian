@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,25 +9,28 @@
 
 #include "core/fpdfdoc/cpdf_action.h"
 #include "core/fpdfdoc/cpdf_dest.h"
-#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/widestring.h"
 
 class CPDF_Dictionary;
 class CPDF_Document;
 
 class CPDF_Bookmark {
  public:
-  CPDF_Bookmark() : m_pDict(nullptr) {}
-  explicit CPDF_Bookmark(CPDF_Dictionary* pDict) : m_pDict(pDict) {}
+  CPDF_Bookmark();
+  CPDF_Bookmark(const CPDF_Bookmark& that);
+  explicit CPDF_Bookmark(RetainPtr<const CPDF_Dictionary> dict);
+  ~CPDF_Bookmark();
 
-  CPDF_Dictionary* GetDict() const { return m_pDict; }
-  uint32_t GetColorRef() const;
-  uint32_t GetFontStyle() const;
-  CFX_WideString GetTitle() const;
-  CPDF_Dest GetDest(CPDF_Document* pDocument) const;
+  const CPDF_Dictionary* GetDict() const { return dict_.Get(); }
+
+  WideString GetTitle() const;
+  CPDF_Dest GetDest(CPDF_Document* document) const;
   CPDF_Action GetAction() const;
+  int GetCount() const;
 
  private:
-  CPDF_Dictionary* m_pDict;
+  RetainPtr<const CPDF_Dictionary> dict_;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_BOOKMARK_H_

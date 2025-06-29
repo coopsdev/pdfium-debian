@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,49 +6,133 @@
 
 #include "core/fpdfapi/page/cpdf_form.h"
 
+#include <algorithm>
+#include <memory>
+
 #include "core/fpdfapi/page/cpdf_contentparser.h"
+#include "core/fpdfapi/page/cpdf_imageobject.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/page/cpdf_pageobjectholder.h"
-#include "core/fpdfapi/page/pageint.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
-#include "third_party/base/ptr_util.h"
+#include "core/fxcrt/check_op.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
+
+CPDF_Form::RecursionState::RecursionState() = default;
+
+CPDF_Form::RecursionState::~RecursionState() = default;
+
+// static
+CPDF_Dictionary* CPDF_Form::ChooseResourcesDict(
+    CPDF_Dictionary* pResources,
+    CPDF_Dictionary* pParentResources,
+    CPDF_Dictionary* pPageResources) {
+  if (pResources) {
+    return pResources;
+  }
+  return pParentResources ? pParentResources : pPageResources;
+}
 
 CPDF_Form::CPDF_Form(CPDF_Document* pDoc,
-                     CPDF_Dictionary* pPageResources,
-                     CPDF_Stream* pFormStream,
-                     CPDF_Dictionary* pParentResources) {
-  m_pDocument = pDoc;
-  m_pFormStream = pFormStream;
-  m_pFormDict = pFormStream ? pFormStream->GetDict() : nullptr;
-  m_pResources = m_pFormDict->GetDictFor("Resources");
-  m_pPageResources = pPageResources;
-  if (!m_pResources)
-    m_pResources = pParentResources;
-  if (!m_pResources)
-    m_pResources = pPageResources;
-  m_Transparency = 0;
-  LoadTransInfo();
+                     RetainPtr<CPDF_Dictionary> pPageResources,
+                     RetainPtr<CPDF_Stream> pFormStream)
+    : CPDF_Form(pDoc,
+                std::move(pPageResources),
+                std::move(pFormStream),
+                nullptr) {}
+
+CPDF_Form::CPDF_Form(CPDF_Document* pDoc,
+                     RetainPtr<CPDF_Dictionary> pPageResources,
+                     RetainPtr<CPDF_Stream> pFormStream,
+                     CPDF_Dictionary* pParentResources)
+    : CPDF_PageObjectHolder(pDoc,
+                            pFormStream->GetMutableDict(),
+                            pPageResources,
+                            pdfium::WrapRetain(ChooseResourcesDict(
+                                pFormStream->GetMutableDict()
+                                    ->GetMutableDictFor("Resources")
+                                    .Get(),
+                                pParentResources,
+                                pPageResources.Get()))),
+      form_stream_(std::move(pFormStream)) {
+  LoadTransparencyInfo();
 }
 
-CPDF_Form::~CPDF_Form() {}
+CPDF_Form::~CPDF_Form() = default;
 
-void CPDF_Form::StartParse(CPDF_AllStates* pGraphicStates,
-                           const CFX_Matrix* pParentMatrix,
-                           CPDF_Type3Char* pType3Char,
-                           int level) {
-  if (m_ParseState == CONTENT_PARSED || m_ParseState == CONTENT_PARSING)
-    return;
-
-  m_pParser = pdfium::MakeUnique<CPDF_ContentParser>();
-  m_pParser->Start(this, pGraphicStates, pParentMatrix, pType3Char, level);
-  m_ParseState = CONTENT_PARSING;
+void CPDF_Form::ParseContent() {
+  ParseContentInternal(nullptr, nullptr, nullptr, nullptr);
 }
 
-void CPDF_Form::ParseContent(CPDF_AllStates* pGraphicStates,
+void CPDF_Form::ParseContent(const CPDF_AllStates* pGraphicStates,
                              const CFX_Matrix* pParentMatrix,
-                             CPDF_Type3Char* pType3Char,
-                             int level) {
-  StartParse(pGraphicStates, pParentMatrix, pType3Char, level);
+                             RecursionState* recursion_state) {
+  ParseContentInternal(pGraphicStates, pParentMatrix, nullptr, recursion_state);
+}
+
+void CPDF_Form::ParseContentForType3Char(CPDF_Type3Char* pType3Char) {
+  ParseContentInternal(nullptr, nullptr, pType3Char, nullptr);
+}
+
+void CPDF_Form::ParseContentInternal(const CPDF_AllStates* pGraphicStates,
+                                     const CFX_Matrix* pParentMatrix,
+                                     CPDF_Type3Char* pType3Char,
+                                     RecursionState* recursion_state) {
+  if (GetParseState() == ParseState::kParsed) {
+    return;
+  }
+
+  if (GetParseState() == ParseState::kNotParsed) {
+    StartParse(std::make_unique<CPDF_ContentParser>(
+        GetStream(), this, pGraphicStates, pParentMatrix, pType3Char,
+        recursion_state ? recursion_state : &recursion_state_));
+  }
+  DCHECK_EQ(GetParseState(), ParseState::kParsing);
   ContinueParse(nullptr);
+}
+
+bool CPDF_Form::HasPageObjects() const {
+  return GetActivePageObjectCount() != 0;
+}
+
+CFX_FloatRect CPDF_Form::CalcBoundingBox() const {
+  if (GetActivePageObjectCount() == 0) {
+    return CFX_FloatRect();
+  }
+
+  float left = 1000000.0f;
+  float right = -1000000.0f;
+  float bottom = 1000000.0f;
+  float top = -1000000.0f;
+  for (const auto& pObj : *this) {
+    if (!pObj->IsActive()) {
+      continue;
+    }
+    const auto& rect = pObj->GetRect();
+    left = std::min(left, rect.left);
+    right = std::max(right, rect.right);
+    bottom = std::min(bottom, rect.bottom);
+    top = std::max(top, rect.top);
+  }
+  return CFX_FloatRect(left, bottom, right, top);
+}
+
+RetainPtr<const CPDF_Stream> CPDF_Form::GetStream() const {
+  return form_stream_;
+}
+
+std::optional<std::pair<RetainPtr<CFX_DIBitmap>, CFX_Matrix>>
+CPDF_Form::GetBitmapAndMatrixFromSoleImageOfForm() const {
+  // TODO(crbug.com/377660088): Determine if there is a case where only a single
+  // active object but other inactive objects is problematic for this method.
+  if (GetActivePageObjectCount() != 1) {
+    return std::nullopt;
+  }
+
+  CPDF_ImageObject* pImageObject = (*begin())->AsImage();
+  if (!pImageObject) {
+    return std::nullopt;
+  }
+
+  return {{pImageObject->GetIndependentBitmap(), pImageObject->matrix()}};
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,26 @@
 
 #include "core/fpdfapi/render/cpdf_docrenderdata.h"
 
+#include <stdint.h>
+
+#include <algorithm>
+#include <array>
 #include <memory>
+#include <utility>
 
 #include "core/fpdfapi/font/cpdf_type3font.h"
-#include "core/fpdfapi/page/pageint.h"
+#include "core/fpdfapi/page/cpdf_dib.h"
+#include "core/fpdfapi/page/cpdf_function.h"
+#include "core/fpdfapi/page/cpdf_transferfunc.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
-#include "core/fpdfapi/render/cpdf_dibsource.h"
-#include "core/fpdfapi/render/cpdf_transferfunc.h"
 #include "core/fpdfapi/render/cpdf_type3cache.h"
+#include "core/fxcrt/compiler_specific.h"
+#include "core/fxcrt/fixed_size_data_vector.h"
+
+#if BUILDFLAG(IS_WIN)
+#include "core/fxge/win32/cfx_psfonttracker.h"
+#endif
 
 namespace {
 
@@ -22,134 +33,119 @@ const int kMaxOutputs = 16;
 
 }  // namespace
 
-CPDF_DocRenderData::CPDF_DocRenderData(CPDF_Document* pPDFDoc)
-    : m_pPDFDoc(pPDFDoc) {}
-
-CPDF_DocRenderData::~CPDF_DocRenderData() {
-  Clear(true);
+// static
+CPDF_DocRenderData* CPDF_DocRenderData::FromDocument(
+    const CPDF_Document* pDoc) {
+  return static_cast<CPDF_DocRenderData*>(pDoc->GetRenderData());
 }
 
-void CPDF_DocRenderData::Clear(bool bRelease) {
-  for (auto it = m_Type3FaceMap.begin(); it != m_Type3FaceMap.end();) {
-    auto curr_it = it++;
-    CPDF_CountedObject<CPDF_Type3Cache>* cache = curr_it->second;
-    if (bRelease || cache->use_count() < 2) {
-      delete cache->get();
-      delete cache;
-      m_Type3FaceMap.erase(curr_it);
-    }
+CPDF_DocRenderData::CPDF_DocRenderData() = default;
+
+CPDF_DocRenderData::~CPDF_DocRenderData() = default;
+
+RetainPtr<CPDF_Type3Cache> CPDF_DocRenderData::GetCachedType3(
+    CPDF_Type3Font* font) {
+  CHECK(font);
+  auto it = type3_face_map_.find(font);
+  if (it != type3_face_map_.end() && it->second) {
+    return pdfium::WrapRetain(it->second.Get());
   }
 
-  for (auto it = m_TransferFuncMap.begin(); it != m_TransferFuncMap.end();) {
-    auto curr_it = it++;
-    CPDF_CountedObject<CPDF_TransferFunc>* value = curr_it->second;
-    if (bRelease || value->use_count() < 2) {
-      delete value->get();
-      delete value;
-      m_TransferFuncMap.erase(curr_it);
-    }
-  }
+  auto cache = pdfium::MakeRetain<CPDF_Type3Cache>(font);
+  type3_face_map_[font].Reset(cache.Get());
+  return cache;
 }
 
-CPDF_Type3Cache* CPDF_DocRenderData::GetCachedType3(CPDF_Type3Font* pFont) {
-  CPDF_CountedObject<CPDF_Type3Cache>* pCache;
-  auto it = m_Type3FaceMap.find(pFont);
-  if (it == m_Type3FaceMap.end()) {
-    pCache = new CPDF_CountedObject<CPDF_Type3Cache>(
-        pdfium::MakeUnique<CPDF_Type3Cache>(pFont));
-    m_Type3FaceMap[pFont] = pCache;
-  } else {
-    pCache = it->second;
+RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::GetTransferFunc(
+    RetainPtr<const CPDF_Object> obj) {
+  CHECK(obj);
+  auto it = transfer_func_map_.find(obj);
+  if (it != transfer_func_map_.end() && it->second) {
+    return pdfium::WrapRetain(it->second.Get());
   }
-  return pCache->AddRef();
+
+  auto func = CreateTransferFunc(obj);
+  transfer_func_map_[obj].Reset(func.Get());
+  return func;
 }
 
-void CPDF_DocRenderData::ReleaseCachedType3(CPDF_Type3Font* pFont) {
-  auto it = m_Type3FaceMap.find(pFont);
-  if (it != m_Type3FaceMap.end()) {
-    it->second->RemoveRef();
-    if (it->second->use_count() < 2) {
-      delete it->second->get();
-      delete it->second;
-      m_Type3FaceMap.erase(it);
-    }
+#if BUILDFLAG(IS_WIN)
+CFX_PSFontTracker* CPDF_DocRenderData::GetPSFontTracker() {
+  if (!psfont_tracker_) {
+    psfont_tracker_ = std::make_unique<CFX_PSFontTracker>();
   }
+  return psfont_tracker_.get();
 }
+#endif
 
-CPDF_TransferFunc* CPDF_DocRenderData::GetTransferFunc(CPDF_Object* pObj) {
-  if (!pObj)
-    return nullptr;
-
-  auto it = m_TransferFuncMap.find(pObj);
-  if (it != m_TransferFuncMap.end()) {
-    CPDF_CountedObject<CPDF_TransferFunc>* pTransferCounter = it->second;
-    return pTransferCounter->AddRef();
-  }
-
-  std::unique_ptr<CPDF_Function> pFuncs[3];
-  bool bUniTransfer = true;
-  bool bIdentity = true;
-  if (CPDF_Array* pArray = pObj->AsArray()) {
-    bUniTransfer = false;
-    if (pArray->GetCount() < 3)
+RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::CreateTransferFunc(
+    RetainPtr<const CPDF_Object> pObj) const {
+  std::array<std::unique_ptr<CPDF_Function>, 3> pFuncs;
+  const CPDF_Array* pArray = pObj->AsArray();
+  if (pArray) {
+    if (pArray->size() < 3) {
       return nullptr;
+    }
 
     for (uint32_t i = 0; i < 3; ++i) {
       pFuncs[2 - i] = CPDF_Function::Load(pArray->GetDirectObjectAt(i));
-      if (!pFuncs[2 - i])
+      if (!pFuncs[2 - i]) {
         return nullptr;
+      }
     }
   } else {
     pFuncs[0] = CPDF_Function::Load(pObj);
-    if (!pFuncs[0])
+    if (!pFuncs[0]) {
       return nullptr;
-  }
-  CPDF_CountedObject<CPDF_TransferFunc>* pTransferCounter =
-      new CPDF_CountedObject<CPDF_TransferFunc>(
-          pdfium::MakeUnique<CPDF_TransferFunc>(m_pPDFDoc));
-  CPDF_TransferFunc* pTransfer = pTransferCounter->get();
-  m_TransferFuncMap[pObj] = pTransferCounter;
-  FX_FLOAT output[kMaxOutputs];
-  FXSYS_memset(output, 0, sizeof(output));
-  FX_FLOAT input;
-  int noutput;
-  for (int v = 0; v < 256; ++v) {
-    input = (FX_FLOAT)v / 255.0f;
-    if (bUniTransfer) {
-      if (pFuncs[0] && pFuncs[0]->CountOutputs() <= kMaxOutputs)
-        pFuncs[0]->Call(&input, 1, output, noutput);
-      int o = FXSYS_round(output[0] * 255);
-      if (o != v)
-        bIdentity = false;
-      for (int i = 0; i < 3; ++i)
-        pTransfer->m_Samples[i * 256 + v] = o;
-      continue;
     }
-    for (int i = 0; i < 3; ++i) {
-      if (!pFuncs[i] || pFuncs[i]->CountOutputs() > kMaxOutputs) {
-        pTransfer->m_Samples[i * 256 + v] = v;
-        continue;
+  }
+
+  float output[kMaxOutputs];
+  std::fill(std::begin(output), std::end(output), 0.0f);
+
+  bool bIdentity = true;
+  auto samples_r = FixedSizeDataVector<uint8_t>::Uninit(
+      CPDF_TransferFunc::kChannelSampleSize);
+  auto samples_g = FixedSizeDataVector<uint8_t>::Uninit(
+      CPDF_TransferFunc::kChannelSampleSize);
+  auto samples_b = FixedSizeDataVector<uint8_t>::Uninit(
+      CPDF_TransferFunc::kChannelSampleSize);
+
+  std::array<pdfium::span<uint8_t>, 3> samples = {
+      samples_r.span(), samples_g.span(), samples_b.span()};
+  if (pArray) {
+    for (size_t v = 0; v < CPDF_TransferFunc::kChannelSampleSize; ++v) {
+      float input = static_cast<float>(v) / 255.0f;
+      for (int i = 0; i < 3; ++i) {
+        if (pFuncs[i]->OutputCount() > kMaxOutputs) {
+          samples[i][v] = v;
+          continue;
+        }
+        pFuncs[i]->Call(pdfium::span_from_ref(input), output);
+        size_t o = FXSYS_roundf(output[0] * 255);
+        if (o != v) {
+          bIdentity = false;
+        }
+        samples[i][v] = o;
       }
-      pFuncs[i]->Call(&input, 1, output, noutput);
-      int o = FXSYS_round(output[0] * 255);
-      if (o != v)
+    }
+  } else {
+    for (size_t v = 0; v < CPDF_TransferFunc::kChannelSampleSize; ++v) {
+      float input = static_cast<float>(v) / 255.0f;
+      if (pFuncs[0]->OutputCount() <= kMaxOutputs) {
+        pFuncs[0]->Call(pdfium::span_from_ref(input), output);
+      }
+      size_t o = FXSYS_roundf(output[0] * 255);
+      if (o != v) {
         bIdentity = false;
-      pTransfer->m_Samples[i * 256 + v] = o;
+      }
+      for (auto& channel : samples) {
+        channel[v] = o;
+      }
     }
   }
 
-  pTransfer->m_bIdentity = bIdentity;
-  return pTransferCounter->AddRef();
-}
-
-void CPDF_DocRenderData::ReleaseTransferFunc(CPDF_Object* pObj) {
-  auto it = m_TransferFuncMap.find(pObj);
-  if (it != m_TransferFuncMap.end()) {
-    it->second->RemoveRef();
-    if (it->second->use_count() < 2) {
-      delete it->second->get();
-      delete it->second;
-      m_TransferFuncMap.erase(it);
-    }
-  }
+  return pdfium::MakeRetain<CPDF_TransferFunc>(bIdentity, std::move(samples_r),
+                                               std::move(samples_g),
+                                               std::move(samples_b));
 }

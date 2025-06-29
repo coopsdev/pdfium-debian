@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,25 +7,50 @@
 #ifndef XFA_FXFA_PARSER_CXFA_FILL_H_
 #define XFA_FXFA_PARSER_CXFA_FILL_H_
 
-#include "core/fxcrt/fx_system.h"
-#include "core/fxge/fx_dib.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "core/fxcrt/fx_coordinates.h"
+#include "core/fxge/dib/fx_dib.h"
+#include "xfa/fgas/graphics/cfgas_gepath.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
+class CFGAS_GEGraphics;
 
-class CXFA_Fill : public CXFA_Data {
+class CXFA_Fill final : public CXFA_Node {
  public:
-  explicit CXFA_Fill(CXFA_Node* pNode);
-  ~CXFA_Fill();
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Fill() override;
 
-  int32_t GetPresence();
-  FX_ARGB GetColor(bool bText = false);
-  XFA_Element GetFillType();
-  int32_t GetPattern(FX_ARGB& foreColor);
-  int32_t GetStipple(FX_ARGB& stippleColor);
-  int32_t GetLinear(FX_ARGB& endColor);
-  int32_t GetRadial(FX_ARGB& endColor);
+  bool IsVisible();
+
+  FX_ARGB GetFillColor() const;
+  FX_ARGB GetTextColor() const;
   void SetColor(FX_ARGB color);
+
+  void Draw(CFGAS_GEGraphics* pGS,
+            const CFGAS_GEPath& fillPath,
+            const CFX_RectF& rtWidget,
+            const CFX_Matrix& matrix);
+
+ private:
+  CXFA_Fill(CXFA_Document* doc, XFA_PacketType packet);
+
+  XFA_Element GetType() const;
+
+  void DrawStipple(CFGAS_GEGraphics* pGS,
+                   const CFGAS_GEPath& fillPath,
+                   const CFX_RectF& rtWidget,
+                   const CFX_Matrix& matrix);
+  void DrawRadial(CFGAS_GEGraphics* pGS,
+                  const CFGAS_GEPath& fillPath,
+                  const CFX_RectF& rtWidget,
+                  const CFX_Matrix& matrix);
+  void DrawLinear(CFGAS_GEGraphics* pGS,
+                  const CFGAS_GEPath& fillPath,
+                  const CFX_RectF& rtWidget,
+                  const CFX_Matrix& matrix);
+  void DrawPattern(CFGAS_GEGraphics* pGS,
+                   const CFGAS_GEPath& fillPath,
+                   const CFX_RectF& rtWidget,
+                   const CFX_Matrix& matrix);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_FILL_H_

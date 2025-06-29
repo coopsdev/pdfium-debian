@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,67 +7,70 @@
 #ifndef CORE_FPDFDOC_CPVT_WORDPLACE_H_
 #define CORE_FPDFDOC_CPVT_WORDPLACE_H_
 
-#include "core/fxcrt/fx_system.h"
+#include <stdint.h>
 
 struct CPVT_WordPlace {
-  CPVT_WordPlace() : nSecIndex(-1), nLineIndex(-1), nWordIndex(-1) {}
+  CPVT_WordPlace() = default;
 
   CPVT_WordPlace(int32_t other_nSecIndex,
                  int32_t other_nLineIndex,
-                 int32_t other_nWordIndex) {
-    nSecIndex = other_nSecIndex;
-    nLineIndex = other_nLineIndex;
-    nWordIndex = other_nWordIndex;
+                 int32_t other_nWordIndex)
+      : nSecIndex(other_nSecIndex),
+        nLineIndex(other_nLineIndex),
+        nWordIndex(other_nWordIndex) {}
+
+  void Reset() {
+    nSecIndex = -1;
+    nLineIndex = -1;
+    nWordIndex = -1;
   }
 
-  void Default() { nSecIndex = nLineIndex = nWordIndex = -1; }
-
-  bool operator==(const CPVT_WordPlace& wp) const {
-    return wp.nSecIndex == nSecIndex && wp.nLineIndex == nLineIndex &&
-           wp.nWordIndex == nWordIndex;
+  void AdvanceSection() {
+    nSecIndex++;
+    nLineIndex = 0;
+    nWordIndex = -1;
   }
 
-  bool operator!=(const CPVT_WordPlace& wp) const { return !(*this == wp); }
-
-  inline int32_t WordCmp(const CPVT_WordPlace& wp) const {
-    if (nSecIndex > wp.nSecIndex)
-      return 1;
-    if (nSecIndex < wp.nSecIndex)
-      return -1;
-    if (nLineIndex > wp.nLineIndex)
-      return 1;
-    if (nLineIndex < wp.nLineIndex)
-      return -1;
-    if (nWordIndex > wp.nWordIndex)
-      return 1;
-    if (nWordIndex < wp.nWordIndex)
-      return -1;
-    return 0;
+  friend inline bool operator==(const CPVT_WordPlace& lhs,
+                                const CPVT_WordPlace& rhs) {
+    return lhs.nSecIndex == rhs.nSecIndex && lhs.nLineIndex == rhs.nLineIndex &&
+           lhs.nWordIndex == rhs.nWordIndex;
+  }
+  inline bool operator<(const CPVT_WordPlace& wp) const {
+    if (nSecIndex != wp.nSecIndex) {
+      return nSecIndex < wp.nSecIndex;
+    }
+    if (nLineIndex != wp.nLineIndex) {
+      return nLineIndex < wp.nLineIndex;
+    }
+    return nWordIndex < wp.nWordIndex;
+  }
+  inline bool operator>(const CPVT_WordPlace& wp) const {
+    if (nSecIndex != wp.nSecIndex) {
+      return nSecIndex > wp.nSecIndex;
+    }
+    if (nLineIndex != wp.nLineIndex) {
+      return nLineIndex > wp.nLineIndex;
+    }
+    return nWordIndex > wp.nWordIndex;
+  }
+  inline bool operator<=(const CPVT_WordPlace& wp) const {
+    return *this < wp || *this == wp;
+  }
+  inline bool operator>=(const CPVT_WordPlace& wp) const {
+    return *this > wp || *this == wp;
   }
 
   inline int32_t LineCmp(const CPVT_WordPlace& wp) const {
-    if (nSecIndex > wp.nSecIndex)
-      return 1;
-    if (nSecIndex < wp.nSecIndex)
-      return -1;
-    if (nLineIndex > wp.nLineIndex)
-      return 1;
-    if (nLineIndex < wp.nLineIndex)
-      return -1;
-    return 0;
+    if (nSecIndex != wp.nSecIndex) {
+      return nSecIndex - wp.nSecIndex;
+    }
+    return nLineIndex - wp.nLineIndex;
   }
 
-  inline int32_t SecCmp(const CPVT_WordPlace& wp) const {
-    if (nSecIndex > wp.nSecIndex)
-      return 1;
-    if (nSecIndex < wp.nSecIndex)
-      return -1;
-    return 0;
-  }
-
-  int32_t nSecIndex;
-  int32_t nLineIndex;
-  int32_t nWordIndex;
+  int32_t nSecIndex = -1;
+  int32_t nLineIndex = -1;
+  int32_t nWordIndex = -1;
 };
 
 #endif  // CORE_FPDFDOC_CPVT_WORDPLACE_H_

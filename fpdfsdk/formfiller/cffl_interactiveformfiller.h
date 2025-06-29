@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,169 +9,206 @@
 
 #include <map>
 #include <memory>
+#include <utility>
 
+#include "core/fxcrt/cfx_timer.h"
+#include "core/fxcrt/mask.h"
+#include "core/fxcrt/observed_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
-#include "fpdfsdk/fsdk_define.h"
-#include "fpdfsdk/pdfwindow/PWL_Edit.h"
+#include "fpdfsdk/pwl/ipwl_fillernotify.h"
+#include "public/fpdf_fwlevent.h"
 
-class CFFL_FormFiller;
-class CPDFSDK_FormFillEnvironment;
+class CFFL_FormField;
 class CPDFSDK_PageView;
 class CPDFSDK_Widget;
 
-class CFFL_InteractiveFormFiller : public IPWL_Filler_Notify {
+class CFFL_InteractiveFormFiller final : public IPWL_FillerNotify {
  public:
-  explicit CFFL_InteractiveFormFiller(
-      CPDFSDK_FormFillEnvironment* pFormFillEnv);
+  class CallbackIface {
+   public:
+    virtual ~CallbackIface() = default;
+
+    virtual void OnSetFieldInputFocus(const WideString& text) = 0;
+    virtual void OnCalculate(ObservedPtr<CPDFSDK_Annot>& pAnnot) = 0;
+    virtual void OnFormat(ObservedPtr<CPDFSDK_Annot>& pAnnot) = 0;
+    virtual void Invalidate(IPDF_Page* pPage, const FX_RECT& rect) = 0;
+    virtual CPDFSDK_PageView* GetOrCreatePageView(IPDF_Page* pPage) = 0;
+    virtual CPDFSDK_PageView* GetPageView(IPDF_Page* pPage) = 0;
+    virtual CFX_Timer::HandlerIface* GetTimerHandler() = 0;
+    virtual CPDFSDK_Annot* GetFocusAnnot() const = 0;
+    virtual bool SetFocusAnnot(ObservedPtr<CPDFSDK_Annot>& pAnnot) = 0;
+    virtual void InvalidateRect(CPDFSDK_Widget* pWidget,
+                                const CFX_FloatRect& rect) = 0;
+    virtual void OutputSelectedRect(CFFL_FormField* pFormField,
+                                    const CFX_FloatRect& rect) = 0;
+    virtual bool IsSelectionImplemented() const = 0;
+    virtual void SetCursor(CursorStyle nCursorStyle) = 0;
+
+    // See PDF Reference 1.7, table 3.20 for the permission bits. Returns true
+    // if any bit in |flags| is set.
+    virtual bool HasPermissions(uint32_t flags) const = 0;
+    virtual void OnChange() = 0;
+  };
+
+  explicit CFFL_InteractiveFormFiller(CallbackIface* pCallbackIface);
   ~CFFL_InteractiveFormFiller() override;
 
-  bool Annot_HitTest(CPDFSDK_PageView* pPageView,
-                     CPDFSDK_Annot* pAnnot,
-                     const CFX_PointF& point);
-  FX_RECT GetViewBBox(CPDFSDK_PageView* pPageView, CPDFSDK_Annot* pAnnot);
-  void OnDraw(CPDFSDK_PageView* pPageView,
-              CPDFSDK_Annot* pAnnot,
-              CFX_RenderDevice* pDevice,
-              CFX_Matrix* pUser2Device);
+  bool Annot_HitTest(const CPDFSDK_Widget* pWidget, const CFX_PointF& point);
+  FX_RECT GetViewBBox(const CPDFSDK_PageView* pPageView,
+                      CPDFSDK_Widget* pWidget);
 
-  void OnDelete(CPDFSDK_Annot* pAnnot);
+  void OnDraw(CPDFSDK_PageView* pPageView,
+              CPDFSDK_Widget* pWidget,
+              CFX_RenderDevice* pDevice,
+              const CFX_Matrix& mtUser2Device);
+  void OnDelete(CPDFSDK_Widget* pWidget);
 
   void OnMouseEnter(CPDFSDK_PageView* pPageView,
-                    CPDFSDK_Annot::ObservedPtr* pAnnot,
-                    uint32_t nFlag);
+                    ObservedPtr<CPDFSDK_Widget>& pWidget,
+                    Mask<FWL_EVENTFLAG> nFlag);
   void OnMouseExit(CPDFSDK_PageView* pPageView,
-                   CPDFSDK_Annot::ObservedPtr* pAnnot,
-                   uint32_t nFlag);
+                   ObservedPtr<CPDFSDK_Widget>& pWidget,
+                   Mask<FWL_EVENTFLAG> nFlag);
   bool OnLButtonDown(CPDFSDK_PageView* pPageView,
-                     CPDFSDK_Annot::ObservedPtr* pAnnot,
-                     uint32_t nFlags,
+                     ObservedPtr<CPDFSDK_Widget>& pWidget,
+                     Mask<FWL_EVENTFLAG> nFlags,
                      const CFX_PointF& point);
   bool OnLButtonUp(CPDFSDK_PageView* pPageView,
-                   CPDFSDK_Annot::ObservedPtr* pAnnot,
-                   uint32_t nFlags,
+                   ObservedPtr<CPDFSDK_Widget>& pWidget,
+                   Mask<FWL_EVENTFLAG> nFlags,
                    const CFX_PointF& point);
   bool OnLButtonDblClk(CPDFSDK_PageView* pPageView,
-                       CPDFSDK_Annot::ObservedPtr* pAnnot,
-                       uint32_t nFlags,
+                       ObservedPtr<CPDFSDK_Widget>& pWidget,
+                       Mask<FWL_EVENTFLAG> nFlags,
                        const CFX_PointF& point);
   bool OnMouseMove(CPDFSDK_PageView* pPageView,
-                   CPDFSDK_Annot::ObservedPtr* pAnnot,
-                   uint32_t nFlags,
+                   ObservedPtr<CPDFSDK_Widget>& pWidget,
+                   Mask<FWL_EVENTFLAG> nFlags,
                    const CFX_PointF& point);
   bool OnMouseWheel(CPDFSDK_PageView* pPageView,
-                    CPDFSDK_Annot::ObservedPtr* pAnnot,
-                    uint32_t nFlags,
-                    short zDelta,
-                    const CFX_PointF& point);
+                    ObservedPtr<CPDFSDK_Widget>& pWidget,
+                    Mask<FWL_EVENTFLAG> nFlags,
+                    const CFX_PointF& point,
+                    const CFX_Vector& delta);
   bool OnRButtonDown(CPDFSDK_PageView* pPageView,
-                     CPDFSDK_Annot::ObservedPtr* pAnnot,
-                     uint32_t nFlags,
+                     ObservedPtr<CPDFSDK_Widget>& pWidget,
+                     Mask<FWL_EVENTFLAG> nFlags,
                      const CFX_PointF& point);
   bool OnRButtonUp(CPDFSDK_PageView* pPageView,
-                   CPDFSDK_Annot::ObservedPtr* pAnnot,
-                   uint32_t nFlags,
+                   ObservedPtr<CPDFSDK_Widget>& pWidget,
+                   Mask<FWL_EVENTFLAG> nFlags,
                    const CFX_PointF& point);
 
-  bool OnKeyDown(CPDFSDK_Annot* pAnnot, uint32_t nKeyCode, uint32_t nFlags);
-  bool OnChar(CPDFSDK_Annot* pAnnot, uint32_t nChar, uint32_t nFlags);
+  bool OnKeyDown(CPDFSDK_Widget* pWidget,
+                 FWL_VKEYCODE nKeyCode,
+                 Mask<FWL_EVENTFLAG> nFlags);
+  bool OnChar(CPDFSDK_Widget* pWidget,
+              uint32_t nChar,
+              Mask<FWL_EVENTFLAG> nFlags);
 
-  bool OnSetFocus(CPDFSDK_Annot::ObservedPtr* pAnnot, uint32_t nFlag);
-  bool OnKillFocus(CPDFSDK_Annot::ObservedPtr* pAnnot, uint32_t nFlag);
+  bool OnSetFocus(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                  Mask<FWL_EVENTFLAG> nFlag);
+  bool OnKillFocus(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                   Mask<FWL_EVENTFLAG> nFlag);
 
-  CFFL_FormFiller* GetFormFiller(CPDFSDK_Annot* pAnnot, bool bRegister);
-  void RemoveFormFiller(CPDFSDK_Annot* pAnnot);
+  // Wrapper methods for CallbackIface
+  void OnSetFieldInputFocus(const WideString& text);
+  void Invalidate(IPDF_Page* pPage, const FX_RECT& rect);
+  CPDFSDK_PageView* GetOrCreatePageView(IPDF_Page* pPage);
+  CPDFSDK_PageView* GetPageView(IPDF_Page* pPage);
+  CFX_Timer::HandlerIface* GetTimerHandler();
+  void OnChange();
+
+  CFFL_FormField* GetFormFieldForTesting(CPDFSDK_Widget* pAnnot) {
+    return GetFormField(pAnnot);
+  }
+
+  WideString GetText(CPDFSDK_Widget* pWidget);
+  WideString GetSelectedText(CPDFSDK_Widget* pWidget);
+  void ReplaceAndKeepSelection(CPDFSDK_Widget* pWidget, const WideString& text);
+  void ReplaceSelection(CPDFSDK_Widget* pWidget, const WideString& text);
+  bool SelectAllText(CPDFSDK_Widget* pWidget);
+
+  bool CanUndo(CPDFSDK_Widget* pWidget);
+  bool CanRedo(CPDFSDK_Widget* pWidget);
+  bool Undo(CPDFSDK_Widget* pWidget);
+  bool Redo(CPDFSDK_Widget* pWidget);
 
   static bool IsVisible(CPDFSDK_Widget* pWidget);
   static bool IsReadOnly(CPDFSDK_Widget* pWidget);
-  static bool IsFillingAllowed(CPDFSDK_Widget* pWidget);
-  static bool IsValidAnnot(CPDFSDK_PageView* pPageView, CPDFSDK_Annot* pAnnot);
+  static bool IsValidAnnot(const CPDFSDK_PageView* pPageView,
+                           CPDFSDK_Widget* pWidget);
 
-  void OnKeyStrokeCommit(CPDFSDK_Annot::ObservedPtr* pWidget,
-                         CPDFSDK_PageView* pPageView,
-                         bool& bRC,
-                         bool& bExit,
-                         uint32_t nFlag);
-  void OnValidate(CPDFSDK_Annot::ObservedPtr* pWidget,
-                  CPDFSDK_PageView* pPageView,
-                  bool& bRC,
-                  bool& bExit,
-                  uint32_t nFlag);
+  bool OnKeyStrokeCommit(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                         const CPDFSDK_PageView* pPageView,
+                         Mask<FWL_EVENTFLAG> nFlag);
+  bool OnValidate(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                  const CPDFSDK_PageView* pPageView,
+                  Mask<FWL_EVENTFLAG> nFlag);
+  void OnCalculate(ObservedPtr<CPDFSDK_Widget>& pWidget);
+  void OnFormat(ObservedPtr<CPDFSDK_Widget>& pWidget);
+  bool OnButtonUp(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                  const CPDFSDK_PageView* pPageView,
+                  Mask<FWL_EVENTFLAG> nFlag);
 
-  void OnCalculate(CPDFSDK_Widget* pWidget,
-                   CPDFSDK_PageView* pPageView,
-                   bool& bExit,
-                   uint32_t nFlag);
-  void OnFormat(CPDFSDK_Widget* pWidget,
-                CPDFSDK_PageView* pPageView,
-                bool& bExit,
-                uint32_t nFlag);
-  void OnButtonUp(CPDFSDK_Annot::ObservedPtr* pWidget,
-                  CPDFSDK_PageView* pPageView,
-                  bool& bReset,
-                  bool& bExit,
-                  uint32_t nFlag);
-#ifdef PDF_ENABLE_XFA
-  void OnClick(CPDFSDK_Widget* pWidget,
-               CPDFSDK_PageView* pPageView,
-               bool& bReset,
-               bool& bExit,
-               uint32_t nFlag);
-  void OnFull(CPDFSDK_Widget* pWidget,
-              CPDFSDK_PageView* pPageView,
-              bool& bReset,
-              bool& bExit,
-              uint32_t nFlag);
-  void OnPreOpen(CPDFSDK_Widget* pWidget,
-                 CPDFSDK_PageView* pPageView,
-                 bool& bReset,
-                 bool& bExit,
-                 uint32_t nFlag);
-  void OnPostOpen(CPDFSDK_Widget* pWidget,
-                  CPDFSDK_PageView* pPageView,
-                  bool& bReset,
-                  bool& bExit,
-                  uint32_t nFlag);
-#endif  // PDF_ENABLE_XFA
+  bool SetIndexSelected(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                        int index,
+                        bool selected);
+  bool IsIndexSelected(ObservedPtr<CPDFSDK_Widget>& pWidget, int index);
 
  private:
-  using CFFL_Widget2Filler =
-      std::map<CPDFSDK_Annot*, std::unique_ptr<CFFL_FormFiller>>;
+  using WidgetToFormFillerMap =
+      std::map<CPDFSDK_Widget*, std::unique_ptr<CFFL_FormField>>;
 
-  // IPWL_Filler_Notify:
-  void QueryWherePopup(void* pPrivateData,
-                       FX_FLOAT fPopupMin,
-                       FX_FLOAT fPopupMax,
-                       int32_t& nRet,
-                       FX_FLOAT& fPopupRet) override;
-  void OnBeforeKeyStroke(void* pPrivateData,
-                         CFX_WideString& strChange,
-                         const CFX_WideString& strChangeEx,
-                         int nSelStart,
-                         int nSelEnd,
-                         bool bKeyDown,
-                         bool& bRC,
-                         bool& bExit,
-                         uint32_t nFlag) override;
+  // IPWL_FillerNotify:
+  void InvalidateRect(PerWindowData* pWidgetData,
+                      const CFX_FloatRect& rect) override;
+  void OutputSelectedRect(PerWindowData* pWidgetData,
+                          const CFX_FloatRect& rect) override;
+  bool IsSelectionImplemented() const override;
+  void SetCursor(CursorStyle nCursorStyle) override;
+  void QueryWherePopup(const PerWindowData* pAttached,
+                       float fPopupMin,
+                       float fPopupMax,
+                       bool* bBottom,
+                       float* fPopupRet) override;
+  BeforeKeystrokeResult OnBeforeKeyStroke(const PerWindowData* pAttached,
+                                          WideString& strChange,
+                                          const WideString& strChangeEx,
+                                          int nSelStart,
+                                          int nSelEnd,
+                                          bool bKeyDown,
+                                          Mask<FWL_EVENTFLAG> nFlag) override;
+  bool OnPopupPreOpen(const PerWindowData* pAttached,
+                      Mask<FWL_EVENTFLAG> nFlag) override;
+  bool OnPopupPostOpen(const PerWindowData* pAttached,
+                       Mask<FWL_EVENTFLAG> nFlag) override;
+
 #ifdef PDF_ENABLE_XFA
-  void OnPopupPreOpen(void* pPrivateData, bool& bExit, uint32_t nFlag) override;
-  void OnPopupPostOpen(void* pPrivateData,
-                       bool& bExit,
-                       uint32_t nFlag) override;
-  void SetFocusAnnotTab(CPDFSDK_Annot* pWidget, bool bSameField, bool bNext);
+  void SetFocusAnnotTab(CPDFSDK_Widget* pWidget, bool bSameField, bool bNext);
+  bool OnClick(ObservedPtr<CPDFSDK_Widget>& pWidget,
+               const CPDFSDK_PageView* pPageView,
+               Mask<FWL_EVENTFLAG> nFlag);
+  bool OnFull(ObservedPtr<CPDFSDK_Widget>& pAnnot,
+              const CPDFSDK_PageView* pPageView,
+              Mask<FWL_EVENTFLAG> nFlag);
+  bool OnPreOpen(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                 const CPDFSDK_PageView* pPageView,
+                 Mask<FWL_EVENTFLAG> nFlag);
+  bool OnPostOpen(ObservedPtr<CPDFSDK_Widget>& pWidget,
+                  const CPDFSDK_PageView* pPageView,
+                  Mask<FWL_EVENTFLAG> nFlag);
 #endif  // PDF_ENABLE_XFA
-  void UnRegisterFormFiller(CPDFSDK_Annot* pAnnot);
 
-  CPDFSDK_FormFillEnvironment* const m_pFormFillEnv;
-  CFFL_Widget2Filler m_Maps;
-  bool m_bNotifying;
-};
+  bool IsFillingAllowed(CPDFSDK_Widget* pWidget) const;
+  CFFL_FormField* GetFormField(CPDFSDK_Widget* pWidget);
+  CFFL_FormField* GetOrCreateFormField(CPDFSDK_Widget* pWidget);
+  void UnregisterFormField(CPDFSDK_Widget* pWidget);
 
-class CFFL_PrivateData {
- public:
-  CPDFSDK_Widget* pWidget;
-  CPDFSDK_PageView* pPageView;
-  int nWidgetAge;
-  int nValueAge;
+  UnownedPtr<CallbackIface> const callback_iface_;
+  WidgetToFormFillerMap map_;
+  bool notifying_ = false;
 };
 
 #endif  // FPDFSDK_FORMFILLER_CFFL_INTERACTIVEFORMFILLER_H_

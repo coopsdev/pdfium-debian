@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 
 #ifndef XFA_FWL_FWL_WIDGETHIT_H_
 #define XFA_FWL_FWL_WIDGETHIT_H_
+
+namespace pdfium {
 
 enum class FWL_WidgetHit {
   Unknown = 0,
@@ -31,5 +33,10 @@ enum class FWL_WidgetHit {
   UpButton,
   DownButton
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::FWL_WidgetHit;
 
 #endif  // XFA_FWL_FWL_WIDGETHIT_H_

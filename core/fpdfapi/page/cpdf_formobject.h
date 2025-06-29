@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,11 @@
 
 class CPDF_Form;
 
-class CPDF_FormObject : public CPDF_PageObject {
+class CPDF_FormObject final : public CPDF_PageObject {
  public:
-  CPDF_FormObject();
+  CPDF_FormObject(int32_t content_stream,
+                  std::unique_ptr<CPDF_Form> pForm,
+                  const CFX_Matrix& matrix);
   ~CPDF_FormObject() override;
 
   // CPDF_PageObject:
@@ -27,10 +29,14 @@ class CPDF_FormObject : public CPDF_PageObject {
   const CPDF_FormObject* AsForm() const override;
 
   void CalcBoundingBox();
-  const CPDF_Form* form() const { return m_pForm.get(); }
+  const CPDF_Form* form() const { return form_.get(); }
+  CPDF_Form* form() { return form_.get(); }
+  const CFX_Matrix& form_matrix() const { return form_matrix_; }
+  void SetFormMatrix(const CFX_Matrix& matrix);
 
-  std::unique_ptr<CPDF_Form> m_pForm;
-  CFX_Matrix m_FormMatrix;
+ private:
+  std::unique_ptr<CPDF_Form> const form_;
+  CFX_Matrix form_matrix_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_FORMOBJECT_H_

@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,7 @@
 #ifndef CORE_FXCODEC_JBIG2_JBIG2_DEFINE_H_
 #define CORE_FXCODEC_JBIG2_JBIG2_DEFINE_H_
 
-#include "core/fxcrt/fx_system.h"
-
-#define JBIG2_memset FXSYS_memset
-#define JBIG2_memcmp FXSYS_memcmp
-#define JBIG2_memcpy FXSYS_memcpy
-#define JBIG2_OOB 1
+#include <stdint.h>
 
 struct JBig2RegionInfo {
   int32_t width;
@@ -27,10 +22,12 @@ struct JBig2HuffmanCode {
   int32_t code;
 };
 
-#define JBIG2_MAX_REFERRED_SEGMENT_COUNT 64
-#define JBIG2_MAX_EXPORT_SYSMBOLS 65535
-#define JBIG2_MAX_NEW_SYSMBOLS 65535
-#define JBIG2_MAX_PATTERN_INDEX 65535
-#define JBIG2_MAX_IMAGE_SIZE 65535
+constexpr int32_t kJBig2OOB = 1;
+
+constexpr int32_t kJBig2MaxReferredSegmentCount = 64;
+constexpr uint32_t kJBig2MaxExportSymbols = 65535;
+constexpr uint32_t kJBig2MaxNewSymbols = 65535;
+constexpr uint32_t kJBig2MaxPatternIndex = 65535;
+constexpr int32_t kJBig2MaxImageSize = 65535;
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_DEFINE_H_

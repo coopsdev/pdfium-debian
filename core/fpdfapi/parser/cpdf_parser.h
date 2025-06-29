@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,40 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_PARSER_H_
 #define CORE_FPDFAPI_PARSER_CPDF_PARSER_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
+#include "core/fpdfapi/parser/cpdf_cross_ref_table.h"
+#include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/fx_types.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Array;
-class CPDF_CryptoHandler;
 class CPDF_Dictionary;
-class CPDF_Document;
-class CPDF_IndirectObjectHolder;
 class CPDF_LinearizedHeader;
 class CPDF_Object;
+class CPDF_ObjectStream;
+class CPDF_ReadValidator;
 class CPDF_SecurityHandler;
-class CPDF_StreamAcc;
 class CPDF_SyntaxParser;
+class IFX_ArchiveStream;
 class IFX_SeekableReadStream;
 
 class CPDF_Parser {
  public:
+  class ParsedObjectsHolder : public CPDF_IndirectObjectHolder {
+   public:
+    virtual bool TryInit() = 0;
+  };
+
   enum Error {
     SUCCESS = 0,
     FILE_ERROR,
@@ -38,146 +51,159 @@ class CPDF_Parser {
 
   // A limit on the maximum object number in the xref table. Theoretical limits
   // are higher, but this may be large enough in practice.
-  static const uint32_t kMaxObjectNumber = 1048576;
+  // Note: This was 1M, but https://crbug.com/910009 encountered a PDF with
+  // object numbers in the 1.7M range. The PDF only has 10K objects, but they
+  // are non-consecutive.
+  static constexpr uint32_t kMaxObjectNumber = 4 * 1024 * 1024;
 
+  static constexpr size_t kInvalidPos = std::numeric_limits<size_t>::max();
+
+  explicit CPDF_Parser(ParsedObjectsHolder* holder);
   CPDF_Parser();
   ~CPDF_Parser();
 
-  Error StartParse(const CFX_RetainPtr<IFX_SeekableReadStream>& pFile,
-                   CPDF_Document* pDocument);
-  Error StartLinearizedParse(const CFX_RetainPtr<IFX_SeekableReadStream>& pFile,
-                             CPDF_Document* pDocument);
+  Error StartParse(RetainPtr<IFX_SeekableReadStream> pFile,
+                   const ByteString& password);
+  Error StartLinearizedParse(RetainPtr<CPDF_ReadValidator> validator,
+                             const ByteString& password);
 
-  void SetPassword(const FX_CHAR* password) { m_Password = password; }
-  CFX_ByteString GetPassword() { return m_Password; }
-  CPDF_Dictionary* GetTrailer() const { return m_pTrailer.get(); }
-  FX_FILESIZE GetLastXRefOffset() const { return m_LastXRefOffset; }
+  ByteString GetPassword() const { return password_; }
 
-  uint32_t GetPermissions() const;
-  uint32_t GetRootObjNum();
-  uint32_t GetInfoObjNum();
-  CPDF_Array* GetIDArray();
+  // Take the GetPassword() value and encode it, if necessary, based on the
+  // password encoding conversion.
+  ByteString GetEncodedPassword() const;
 
-  CPDF_Dictionary* GetEncryptDict() const { return m_pEncryptDict; }
+  const CPDF_Dictionary* GetTrailer() const;
+  uint32_t GetTrailerObjectNumber() const;
 
-  std::unique_ptr<CPDF_Object> ParseIndirectObject(
-      CPDF_IndirectObjectHolder* pObjList,
-      uint32_t objnum);
+  // Returns a new trailer which combines the last read trailer with the /Root
+  // and /Info from previous ones.
+  RetainPtr<CPDF_Dictionary> GetCombinedTrailer() const;
+
+  FX_FILESIZE GetLastXRefOffset() const { return last_xref_offset_; }
+
+  uint32_t GetPermissions(bool get_owner_perms) const;
+  uint32_t GetRootObjNum() const;
+  uint32_t GetInfoObjNum() const;
+  RetainPtr<const CPDF_Array> GetIDArray() const;
+  RetainPtr<const CPDF_Dictionary> GetEncryptDict() const;
+
+  RetainPtr<CPDF_Object> ParseIndirectObject(uint32_t objnum);
 
   uint32_t GetLastObjNum() const;
   bool IsValidObjectNumber(uint32_t objnum) const;
   FX_FILESIZE GetObjectPositionOrZero(uint32_t objnum) const;
-  uint8_t GetObjectType(uint32_t objnum) const;
-  uint16_t GetObjectGenNum(uint32_t objnum) const;
-  bool IsVersionUpdated() const { return m_bVersionUpdated; }
-  bool IsObjectFreeOrNull(uint32_t objnum) const;
-  CPDF_CryptoHandler* GetCryptoHandler();
-  CFX_RetainPtr<IFX_SeekableReadStream> GetFileAccess() const;
+  const RetainPtr<CPDF_SecurityHandler>& GetSecurityHandler() const {
+    return security_handler_;
+  }
+  bool IsObjectFree(uint32_t objnum) const;
 
-  FX_FILESIZE GetObjectOffset(uint32_t objnum) const;
-  FX_FILESIZE GetObjectSize(uint32_t objnum) const;
+  int GetFileVersion() const { return file_version_; }
+  bool IsXRefStream() const { return xref_stream_; }
 
-  void GetIndirectBinary(uint32_t objnum, uint8_t*& pBuffer, uint32_t& size);
-  int GetFileVersion() const { return m_FileVersion; }
-  bool IsXRefStream() const { return m_bXRefStream; }
-
-  std::unique_ptr<CPDF_Object> ParseIndirectObjectAt(
-      CPDF_IndirectObjectHolder* pObjList,
-      FX_FILESIZE pos,
-      uint32_t objnum);
-
-  std::unique_ptr<CPDF_Object> ParseIndirectObjectAtByStrict(
-      CPDF_IndirectObjectHolder* pObjList,
-      FX_FILESIZE pos,
-      uint32_t objnum,
-      FX_FILESIZE* pResultPos);
-
+  FX_FILESIZE GetDocumentSize() const;
   uint32_t GetFirstPageNo() const;
+  const CPDF_LinearizedHeader* GetLinearizedHeader() const {
+    return linearized_.get();
+  }
+
+  bool xref_table_rebuilt() const { return xref_table_rebuilt_; }
+
+  std::vector<unsigned int> GetTrailerEnds();
+  bool WriteToArchive(IFX_ArchiveStream* archive, FX_FILESIZE src_size);
+
+  const CPDF_CrossRefTable* GetCrossRefTableForTesting() const {
+    return cross_ref_table_.get();
+  }
+
+  CPDF_Dictionary* GetMutableTrailerForTesting();
+
+  RetainPtr<CPDF_Object> ParseIndirectObjectAtForTesting(FX_FILESIZE pos) {
+    return ParseIndirectObjectAt(pos, 0);
+  }
+
+  void SetLinearizedHeaderForTesting(
+      std::unique_ptr<CPDF_LinearizedHeader> pLinearized);
 
  protected:
-  struct ObjectInfo {
-    ObjectInfo() : pos(0), type(0), gennum(0) {}
-
-    FX_FILESIZE pos;
-    uint8_t type;
-    uint16_t gennum;
-  };
-
-  std::unique_ptr<CPDF_SyntaxParser> m_pSyntax;
-  std::map<uint32_t, ObjectInfo> m_ObjectInfo;
-
-  bool LoadCrossRefV4(FX_FILESIZE pos, FX_FILESIZE streampos, bool bSkip);
+  bool LoadCrossRefTable(FX_FILESIZE pos, bool skip);
   bool RebuildCrossRef();
+  Error StartParseInternal();
+  FX_FILESIZE ParseStartXRef();
+  std::unique_ptr<CPDF_LinearizedHeader> ParseLinearizedHeader();
+
+  void SetSyntaxParserForTesting(std::unique_ptr<CPDF_SyntaxParser> parser);
 
  private:
   friend class CPDF_DataAvail;
 
-  enum class ParserState {
-    kDefault,
-    kComment,
-    kWhitespace,
-    kString,
-    kHexString,
-    kEscapedString,
-    kXref,
-    kObjNum,
-    kPostObjNum,
-    kGenNum,
-    kPostGenNum,
-    kTrailer,
-    kBeginObj,
-    kEndObj
+  struct CrossRefObjData {
+    uint32_t obj_num = 0;
+    CPDF_CrossRefTable::ObjectInfo info;
   };
 
-  CPDF_Object* ParseDirect(CPDF_Object* pObj);
-  bool LoadAllCrossRefV4(FX_FILESIZE pos);
-  bool LoadAllCrossRefV5(FX_FILESIZE pos);
-  bool LoadCrossRefV5(FX_FILESIZE* pos, bool bMainXRef);
-  std::unique_ptr<CPDF_Dictionary> LoadTrailerV4();
+  bool LoadAllCrossRefTablesAndStreams(FX_FILESIZE xref_offset);
+  bool FindAllCrossReferenceTablesAndStream(
+      FX_FILESIZE main_xref_offset,
+      std::vector<FX_FILESIZE>& xref_list,
+      std::vector<FX_FILESIZE>& xref_stream_list);
+  bool LoadCrossRefStream(FX_FILESIZE* pos, bool is_main_xref);
+  void ProcessCrossRefStreamEntry(pdfium::span<const uint8_t> entry_span,
+                                  pdfium::span<const uint32_t> field_widths,
+                                  uint32_t obj_num);
+  RetainPtr<CPDF_Dictionary> LoadTrailer();
   Error SetEncryptHandler();
   void ReleaseEncryptHandler();
-  bool LoadLinearizedAllCrossRefV4(FX_FILESIZE pos, uint32_t dwObjCount);
-  bool LoadLinearizedCrossRefV4(FX_FILESIZE pos, uint32_t dwObjCount);
-  bool LoadLinearizedAllCrossRefV5(FX_FILESIZE pos);
+  bool LoadLinearizedAllCrossRefTable(FX_FILESIZE main_xref_offset);
+  bool LoadLinearizedAllCrossRefStream(FX_FILESIZE main_xref_offset);
   Error LoadLinearizedMainXRefTable();
-  CPDF_StreamAcc* GetObjectStream(uint32_t number);
-  bool IsLinearizedFile(
-      const CFX_RetainPtr<IFX_SeekableReadStream>& pFileAccess,
-      uint32_t offset);
-  void SetEncryptDictionary(CPDF_Dictionary* pDict);
-  void ShrinkObjectMap(uint32_t size);
+
+  const CPDF_ObjectStream* GetObjectStream(uint32_t object_number);
+  RetainPtr<const CPDF_Dictionary> GetRoot() const;
+
   // A simple check whether the cross reference table matches with
   // the objects.
-  bool VerifyCrossRefV4();
+  bool VerifyCrossRefTable();
 
-  CPDF_Document* m_pDocument;  // not owned
-  bool m_bHasParsed;
-  bool m_bXRefStream;
-  bool m_bVersionUpdated;
-  int m_FileVersion;
-  CPDF_Dictionary* m_pEncryptDict;
-  FX_FILESIZE m_LastXRefOffset;
-  std::unique_ptr<CPDF_SecurityHandler> m_pSecurityHandler;
-  CFX_ByteString m_Password;
-  std::set<FX_FILESIZE> m_SortedOffset;
-  std::unique_ptr<CPDF_Dictionary> m_pTrailer;
-  std::vector<std::unique_ptr<CPDF_Dictionary>> m_Trailers;
-  std::unique_ptr<CPDF_LinearizedHeader> m_pLinearized;
-  uint32_t m_dwXrefStartObjNum;
+  RetainPtr<CPDF_Object> ParseIndirectObjectAt(FX_FILESIZE pos,
+                                               uint32_t objnum);
 
-  // A map of object numbers to indirect streams. Map owns the streams.
-  std::map<uint32_t, std::unique_ptr<CPDF_StreamAcc>> m_ObjectStreamMap;
+  // If out_objects is null, the parser position will be moved to end subsection
+  // without additional validation.
+  bool ParseAndAppendCrossRefSubsectionData(
+      uint32_t start_objnum,
+      uint32_t count,
+      std::vector<CrossRefObjData>* out_objects);
+  bool ParseCrossRefTable(std::vector<CrossRefObjData>* out_objects);
+  void MergeCrossRefObjectsData(const std::vector<CrossRefObjData>& objects);
 
-  // Mapping of object numbers to offsets. The offsets are relative to the first
-  // object in the stream.
-  using StreamObjectCache = std::map<uint32_t, uint32_t>;
+  bool InitSyntaxParser(RetainPtr<CPDF_ReadValidator> validator);
+  bool ParseFileVersion();
+  void SetPassword(const ByteString& password) { password_ = password; }
 
-  // Mapping of streams to their object caches. This is valid as long as the
-  // streams in |m_ObjectStreamMap| are valid.
-  std::map<CPDF_StreamAcc*, StreamObjectCache> m_ObjCache;
+  std::unique_ptr<CPDF_SyntaxParser> syntax_;
+  std::unique_ptr<ParsedObjectsHolder> owned_objects_holder_;
+  UnownedPtr<ParsedObjectsHolder> objects_holder_;
+
+  bool has_parsed_ = false;
+  bool xref_stream_ = false;
+  bool xref_table_rebuilt_ = false;
+  int file_version_ = 0;
+  uint32_t metadata_objnum_ = 0;
+  // cross_ref_table_ must be destroyed after security_handler_ due to the
+  // ownership of the ID array data.
+  std::unique_ptr<CPDF_CrossRefTable> cross_ref_table_;
+  FX_FILESIZE last_xref_offset_ = 0;
+  ByteString password_;
+  std::unique_ptr<CPDF_LinearizedHeader> linearized_;
+
+  // A map of object numbers to indirect streams.
+  std::map<uint32_t, std::unique_ptr<CPDF_ObjectStream>> object_stream_map_;
 
   // All indirect object numbers that are being parsed.
-  std::set<uint32_t> m_ParsingObjNums;
+  std::set<uint32_t> parsing_obj_nums_;
+
+  RetainPtr<CPDF_SecurityHandler> security_handler_;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_PARSER_H_

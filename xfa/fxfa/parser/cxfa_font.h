@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,30 +7,32 @@
 #ifndef XFA_FXFA_PARSER_CXFA_FONT_H_
 #define XFA_FXFA_PARSER_CXFA_FONT_H_
 
-#include "core/fxge/fx_dib.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "core/fxge/dib/fx_dib.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Font : public CXFA_Data {
+class CXFA_Font final : public CXFA_Node {
  public:
-  explicit CXFA_Font(CXFA_Node* pNode);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Font() override;
 
-  FX_FLOAT GetBaselineShift();
-  FX_FLOAT GetHorizontalScale();
-  FX_FLOAT GetVerticalScale();
-  FX_FLOAT GetLetterSpacing();
+  float GetBaselineShift() const;
+  float GetHorizontalScale();
+  float GetVerticalScale();
+  float GetLetterSpacing();
   int32_t GetLineThrough();
   int32_t GetUnderline();
-  int32_t GetUnderlinePeriod();
-  FX_FLOAT GetFontSize();
-  void GetTypeface(CFX_WideStringC& wsTypeFace);
+  XFA_AttributeValue GetUnderlinePeriod();
+  float GetFontSize() const;
+  WideString GetTypeface();
 
   bool IsBold();
   bool IsItalic();
 
-  FX_ARGB GetColor();
+  FX_ARGB GetColor() const;
   void SetColor(FX_ARGB color);
+
+ private:
+  CXFA_Font(CXFA_Document* doc, XFA_PacketType packet);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_FONT_H_

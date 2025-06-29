@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,60 +7,57 @@
 #ifndef CORE_FXCODEC_JBIG2_JBIG2_SEGMENT_H_
 #define CORE_FXCODEC_JBIG2_JBIG2_SEGMENT_H_
 
+#include <memory>
+#include <vector>
+
 #include "core/fxcodec/jbig2/JBig2_Define.h"
 #include "core/fxcodec/jbig2/JBig2_HuffmanTable.h"
 #include "core/fxcodec/jbig2/JBig2_PatternDict.h"
 #include "core/fxcodec/jbig2/JBig2_SymbolDict.h"
 
-#define JBIG2_GET_INT32(buf) \
-  (((buf)[0] << 24) | ((buf)[1] << 16) | ((buf)[2] << 8) | (buf)[3])
-#define JBIG2_GET_INT16(buf) (((buf)[0] << 8) | (buf)[1])
-typedef enum {
+enum JBig2_SegmentState {
   JBIG2_SEGMENT_HEADER_UNPARSED,
   JBIG2_SEGMENT_DATA_UNPARSED,
   JBIG2_SEGMENT_PARSE_COMPLETE,
   JBIG2_SEGMENT_PAUSED,
   JBIG2_SEGMENT_ERROR
-} JBig2_SegmentState;
-typedef enum {
+};
+
+enum JBig2_ResultType {
   JBIG2_VOID_POINTER = 0,
   JBIG2_IMAGE_POINTER,
   JBIG2_SYMBOL_DICT_POINTER,
   JBIG2_PATTERN_DICT_POINTER,
   JBIG2_HUFFMAN_TABLE_POINTER
-} JBig2_ResultType;
+};
+
 class CJBig2_Segment {
  public:
   CJBig2_Segment();
-
   ~CJBig2_Segment();
 
-  uint32_t m_dwNumber;
+  uint32_t number_ = 0;
   union {
     struct {
       uint8_t type : 6;
       uint8_t page_association_size : 1;
       uint8_t deferred_non_retain : 1;
     } s;
-    uint8_t c;
-  } m_cFlags;
-  int32_t m_nReferred_to_segment_count;
-  uint32_t* m_pReferred_to_segment_numbers;
-  uint32_t m_dwPage_association;
-  uint32_t m_dwData_length;
-
-  uint32_t m_dwHeader_Length;
-  uint32_t m_dwObjNum;
-  uint32_t m_dwDataOffset;
-  JBig2_SegmentState m_State;
-  JBig2_ResultType m_nResultType;
-  union {
-    CJBig2_SymbolDict* sd;
-    CJBig2_PatternDict* pd;
-    CJBig2_Image* im;
-    CJBig2_HuffmanTable* ht;
-    void* vd;
-  } m_Result;
+    uint8_t c = 0;
+  } flags_;
+  int32_t referred_to_segment_count_ = 0;
+  std::vector<uint32_t> referred_to_segment_numbers_;
+  uint32_t page_association_ = 0;
+  uint32_t data_length_ = 0;
+  uint32_t header_length_ = 0;
+  uint32_t data_offset_ = 0;
+  uint64_t key_ = 0;
+  JBig2_SegmentState state_ = JBIG2_SEGMENT_HEADER_UNPARSED;
+  JBig2_ResultType result_type_ = JBIG2_VOID_POINTER;
+  std::unique_ptr<CJBig2_SymbolDict> symbol_dict_;
+  std::unique_ptr<CJBig2_PatternDict> pattern_dict_;
+  std::unique_ptr<CJBig2_Image> image_;
+  std::unique_ptr<CJBig2_HuffmanTable> huffman_table_;
 };
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_SEGMENT_H_

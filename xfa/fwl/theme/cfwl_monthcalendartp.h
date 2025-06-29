@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,48 +7,46 @@
 #ifndef XFA_FWL_THEME_CFWL_MONTHCALENDARTP_H_
 #define XFA_FWL_THEME_CFWL_MONTHCALENDARTP_H_
 
-#include <memory>
-
+#include "fxjs/gc/heap.h"
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_MonthCalendarTP : public CFWL_WidgetTP {
+namespace pdfium {
+
+class CFWL_MonthCalendarTP final : public CFWL_WidgetTP {
  public:
-  CFWL_MonthCalendarTP();
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_MonthCalendarTP() override;
 
-  // CFWL_WidgetTP
-  void Initialize() override;
-  void Finalize() override;
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
-  void DrawText(CFWL_ThemeText* pParams) override;
-
- protected:
-  struct MCThemeData {
-    FX_ARGB clrCaption;
-    FX_ARGB clrSeperator;
-    FX_ARGB clrDatesHoverBK;
-    FX_ARGB clrDatesSelectedBK;
-    FX_ARGB clrDatesCircle;
-    FX_ARGB clrToday;
-    FX_ARGB clrBK;
-  };
-
-  void DrawTotalBK(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawHeadBk(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawLButton(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawRButton(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawDatesInBK(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawDatesInCircle(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawTodayCircle(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawHSeperator(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawWeekNumSep(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  FWLTHEME_STATE GetState(uint32_t dwFWLStates);
-
-  std::unique_ptr<MCThemeData> m_pThemeData;
-  CFX_WideString wsResource;
+  // CFWL_WidgetTP:
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
+  void DrawText(const CFWL_ThemeText& pParams) override;
 
  private:
-  void SetThemeData();
+  CFWL_MonthCalendarTP();
+
+  void DrawTotalBK(const CFWL_ThemeBackground& pParams,
+                   const CFX_Matrix& matrix);
+  void DrawHeadBk(const CFWL_ThemeBackground& pParams,
+                  const CFX_Matrix& matrix);
+  void DrawLButton(const CFWL_ThemeBackground& pParams,
+                   const CFX_Matrix& matrix);
+  void DrawRButton(const CFWL_ThemeBackground& pParams,
+                   const CFX_Matrix& matrix);
+  void DrawDatesInBK(const CFWL_ThemeBackground& pParams,
+                     const CFX_Matrix& matrix);
+  void DrawDatesInCircle(const CFWL_ThemeBackground& pParams,
+                         const CFX_Matrix& matrix);
+  void DrawTodayCircle(const CFWL_ThemeBackground& pParams,
+                       const CFX_Matrix& matrix);
+  void DrawHSeparator(const CFWL_ThemeBackground& pParams,
+                      const CFX_Matrix& matrix);
+  void DrawWeekNumSep(const CFWL_ThemeBackground& pParams,
+                      const CFX_Matrix& matrix);
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MonthCalendarTP;
 
 #endif  // XFA_FWL_THEME_CFWL_MONTHCALENDARTP_H_

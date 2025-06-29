@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,55 +7,56 @@
 #ifndef XFA_FWL_THEME_CFWL_SCROLLBARTP_H_
 #define XFA_FWL_THEME_CFWL_SCROLLBARTP_H_
 
+#include <array>
 #include <memory>
 
+#include "fxjs/gc/heap.h"
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_ScrollBarTP : public CFWL_WidgetTP {
+namespace pdfium {
+
+class CFWL_ScrollBarTP final : public CFWL_WidgetTP {
  public:
-  CFWL_ScrollBarTP();
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_ScrollBarTP() override;
 
-  // CFWL_WidgetTP
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
+  // CFWL_WidgetTP:
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
 
- protected:
+ private:
   struct SBThemeData {
-    FX_ARGB clrPawColorLight[4];
-    FX_ARGB clrPawColorDark[4];
-    FX_ARGB clrBtnBK[4][2];
-    FX_ARGB clrBtnBorder[4];
     FX_ARGB clrTrackBKStart;
     FX_ARGB clrTrackBKEnd;
+    std::array<FX_ARGB, 4> clrBtnBK;
+    std::array<FX_ARGB, 4> clrBtnBorder;
   };
 
-  void DrawThumbBtn(CFX_Graphics* pGraphics,
-                    const CFX_RectF* pRect,
+  CFWL_ScrollBarTP();
+
+  void DrawThumbBtn(CFGAS_GEGraphics* pGraphics,
+                    const CFX_RectF& rect,
                     bool bVert,
                     FWLTHEME_STATE eState,
-                    bool bPawButton = true,
-                    CFX_Matrix* pMatrix = nullptr);
-  void DrawTrack(CFX_Graphics* pGraphics,
-                 const CFX_RectF* pRect,
+                    const CFX_Matrix& matrix);
+  void DrawTrack(CFGAS_GEGraphics* pGraphics,
+                 const CFX_RectF& rect,
                  bool bVert,
                  FWLTHEME_STATE eState,
                  bool bLowerTrack,
-                 CFX_Matrix* pMatrix = nullptr);
-  void DrawMaxMinBtn(CFX_Graphics* pGraphics,
-                     const CFX_RectF* pRect,
+                 const CFX_Matrix& matrix);
+  void DrawMaxMinBtn(CFGAS_GEGraphics* pGraphics,
+                     const CFX_RectF& rect,
                      FWLTHEME_DIRECTION eDict,
                      FWLTHEME_STATE eState,
-                     CFX_Matrix* pMatrix = nullptr);
-  void DrawPaw(CFX_Graphics* pGraphics,
-               const CFX_RectF* pRect,
-               bool bVert,
-               FWLTHEME_STATE eState,
-               CFX_Matrix* pMatrix = nullptr);
-
-  std::unique_ptr<SBThemeData> m_pThemeData;
-
- private:
+                     const CFX_Matrix& matrix);
   void SetThemeData();
+
+  std::unique_ptr<SBThemeData> const theme_data_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_ScrollBarTP;
 
 #endif  // XFA_FWL_THEME_CFWL_SCROLLBARTP_H_

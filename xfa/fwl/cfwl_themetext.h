@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,36 @@
 #ifndef XFA_FWL_CFWL_THEMETEXT_H_
 #define XFA_FWL_CFWL_THEMETEXT_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/fx_memory.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxcrt/widestring.h"
+#include "xfa/fde/cfde_data.h"
 #include "xfa/fwl/cfwl_themepart.h"
 
-class CFWL_ThemeText : public CFWL_ThemePart {
- public:
-  CFWL_ThemeText() : m_pGraphics(nullptr) {}
+class CFGAS_GEGraphics;
 
-  CFX_WideString m_wsText;
-  uint32_t m_dwTTOStyles;
-  int32_t m_iTTOAlign;
-  CFX_Graphics* m_pGraphics;
+namespace pdfium {
+
+class CFWL_ThemeText final : public CFWL_ThemePart {
+ public:
+  FX_STACK_ALLOCATED();
+
+  CFWL_ThemeText(Part iPart, CFWL_Widget* pWidget, CFGAS_GEGraphics* pGraphics);
+  ~CFWL_ThemeText();
+
+  CFGAS_GEGraphics* GetGraphics() const { return graphics_; }
+
+  FDE_TextAlignment tto_align_ = FDE_TextAlignment::kTopLeft;
+  FDE_TextStyle tto_styles_;
+  WideString text_;
+
+ private:
+  UnownedPtr<CFGAS_GEGraphics> const graphics_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_ThemeText;
 
 #endif  // XFA_FWL_CFWL_THEMETEXT_H_

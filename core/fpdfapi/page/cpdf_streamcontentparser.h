@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,112 +7,134 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_STREAMCONTENTPARSER_H_
 #define CORE_FPDFAPI_PAGE_CPDF_STREAMCONTENTPARSER_H_
 
+#include <array>
 #include <memory>
-#include <unordered_map>
+#include <stack>
+#include <variant>
 #include <vector>
 
-#include "core/fpdfapi/page/cpdf_contentmark.h"
-#include "core/fpdfapi/parser/cpdf_stream.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxge/cfx_pathdata.h"
+#include "core/fpdfapi/page/cpdf_contentmarks.h"
+#include "core/fpdfapi/page/cpdf_form.h"
+#include "core/fpdfapi/page/cpdf_pageobjectholder.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/fx_number.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxge/cfx_fillrenderoptions.h"
+#include "core/fxge/cfx_path.h"
 
 class CPDF_AllStates;
+class CPDF_ColorSpace;
 class CPDF_Dictionary;
 class CPDF_Document;
 class CPDF_Font;
 class CPDF_Image;
 class CPDF_ImageObject;
+class CPDF_Object;
 class CPDF_PageObject;
-class CPDF_PageObjectHolder;
+class CPDF_Pattern;
+class CPDF_ShadingPattern;
+class CPDF_Stream;
 class CPDF_StreamParser;
 class CPDF_TextObject;
-class CPDF_ColorSpace;
-class CPDF_Pattern;
 
 class CPDF_StreamContentParser {
  public:
+  static void InitializeGlobals();
+  static void DestroyGlobals();
+
   CPDF_StreamContentParser(CPDF_Document* pDoc,
-                           CPDF_Dictionary* pPageResources,
-                           CPDF_Dictionary* pParentResources,
+                           RetainPtr<CPDF_Dictionary> pPageResources,
+                           RetainPtr<CPDF_Dictionary> pParentResources,
                            const CFX_Matrix* pmtContentToUser,
-                           CPDF_PageObjectHolder* pObjectHolder,
-                           CPDF_Dictionary* pResources,
-                           CFX_FloatRect* pBBox,
-                           CPDF_AllStates* pAllStates,
-                           int level);
+                           CPDF_PageObjectHolder* pObjHolder,
+                           RetainPtr<CPDF_Dictionary> pResources,
+                           const CFX_FloatRect& rcBBox,
+                           const CPDF_AllStates* pStates,
+                           CPDF_Form::RecursionState* parse_state);
   ~CPDF_StreamContentParser();
 
-  uint32_t Parse(const uint8_t* pData, uint32_t dwSize, uint32_t max_cost);
-  CPDF_PageObjectHolder* GetPageObjectHolder() const { return m_pObjectHolder; }
-  CPDF_AllStates* GetCurStates() const { return m_pCurStates.get(); }
-  bool IsColored() const { return m_bColored; }
-  const FX_FLOAT* GetType3Data() const { return m_Type3Data; }
-  CPDF_Font* FindFont(const CFX_ByteString& name);
+  uint32_t Parse(pdfium::span<const uint8_t> pData,
+                 uint32_t start_offset,
+                 uint32_t max_cost,
+                 const std::vector<uint32_t>& stream_start_offsets);
+  CPDF_PageObjectHolder* GetPageObjectHolder() const { return object_holder_; }
+  CPDF_AllStates* GetCurStates() const { return cur_states_.get(); }
+  bool IsColored() const { return colored_; }
+  pdfium::span<const float> GetType3Data() const { return type3_data_; }
+  RetainPtr<CPDF_Font> FindFont(const ByteString& name);
+  CPDF_PageObjectHolder::CTMMap TakeAllCTMs();
+
+  static ByteStringView FindKeyAbbreviationForTesting(ByteStringView abbr);
+  static ByteStringView FindValueAbbreviationForTesting(ByteStringView abbr);
 
  private:
-  struct ContentParam {
-    enum Type { OBJECT = 0, NUMBER, NAME };
+  enum class RenderType : bool { kFill = false, kStroke = true };
 
-    ContentParam();
-    ~ContentParam();
+  using ContentParam =
+      std::variant<RetainPtr<CPDF_Object>, FX_Number, ByteString>;
 
-    Type m_Type;
-    std::unique_ptr<CPDF_Object> m_pObject;
-    struct {
-      bool m_bInteger;
-      union {
-        int m_Integer;
-        FX_FLOAT m_Float;
-      };
-    } m_Number;
-    struct {
-      int m_Len;
-      char m_Buffer[32];
-    } m_Name;
-  };
+  static constexpr int kParamBufSize = 16;
 
-  static const int kParamBufSize = 16;
-
-  using OpCodes =
-      std::unordered_map<uint32_t, void (CPDF_StreamContentParser::*)()>;
-  static OpCodes InitializeOpCodes();
-
-  void AddNameParam(const CFX_ByteStringC& str);
-  void AddNumberParam(const CFX_ByteStringC& str);
-  void AddObjectParam(std::unique_ptr<CPDF_Object> pObj);
+  void AddNameParam(ByteStringView bsName);
+  void AddNumberParam(ByteStringView str);
+  void AddObjectParam(RetainPtr<CPDF_Object> pObj);
   int GetNextParamPos();
   void ClearAllParams();
-  CPDF_Object* GetObject(uint32_t index);
-  CFX_ByteString GetString(uint32_t index);
-  FX_FLOAT GetNumber(uint32_t index);
-  int GetInteger(uint32_t index) { return (int32_t)(GetNumber(index)); }
-  void OnOperator(const CFX_ByteStringC& op);
-  void AddTextObject(CFX_ByteString* pText,
-                     FX_FLOAT fInitKerning,
-                     FX_FLOAT* pKerning,
-                     int count);
+  RetainPtr<CPDF_Object> GetObject(uint32_t index);
+  ByteString GetString(uint32_t index) const;
+  float GetNumber(uint32_t index) const;
+  // Calls GetNumber() |count| times and returns the values in reverse order.
+  // e.g. for |count| = 3, returns [GetNumber(2), GetNumber(1), GetNumber(0)].
+  std::vector<float> GetNumbers(size_t count) const;
+  int GetInteger(uint32_t index) const {
+    return static_cast<int>(GetNumber(index));
+  }
+  // Makes a point from {GetNumber(index + 1), GetNumber(index)}.
+  CFX_PointF GetPoint(uint32_t index) const;
+  // Makes a matrix from {GetNumber(5), ..., GetNumber(0)}.
+  CFX_Matrix GetMatrix() const;
+  void OnOperator(ByteStringView op);
+  void AddTextObject(pdfium::span<const ByteString> strings,
+                     pdfium::span<const float> kernings,
+                     float initial_kerning);
+  float GetHorizontalTextSize(float fKerning) const;
+  float GetVerticalTextSize(float fKerning) const;
 
   void OnChangeTextMatrix();
   void ParsePathObject();
-  void AddPathPoint(FX_FLOAT x, FX_FLOAT y, FXPT_TYPE type, bool close);
-  void AddPathRect(FX_FLOAT x, FX_FLOAT y, FX_FLOAT w, FX_FLOAT h);
-  void AddPathObject(int FillType, bool bStroke);
-  CPDF_ImageObject* AddImage(std::unique_ptr<CPDF_Stream> pStream);
-  CPDF_ImageObject* AddImage(uint32_t streamObjNum);
-  CPDF_ImageObject* AddImage(CPDF_Image* pImage);
+  void AddPathPoint(const CFX_PointF& point, CFX_Path::Point::Type type);
+  void AddPathPointAndClose(const CFX_PointF& point,
+                            CFX_Path::Point::Type type);
+  void AddPathRect(float x, float y, float w, float h);
+  void AddPathObject(CFX_FillRenderOptions::FillType fill_type,
+                     RenderType render_type);
+  CPDF_ImageObject* AddImageFromStream(RetainPtr<CPDF_Stream> pStream,
+                                       const ByteString& name);
+  CPDF_ImageObject* AddImageFromStreamObjNum(uint32_t stream_obj_num,
+                                             const ByteString& name);
+  CPDF_ImageObject* AddLastImage();
 
-  void AddForm(CPDF_Stream* pStream);
+  void AddForm(RetainPtr<CPDF_Stream> pStream, const ByteString& name);
   void SetGraphicStates(CPDF_PageObject* pObj,
                         bool bColor,
                         bool bText,
                         bool bGraph);
-  CPDF_ColorSpace* FindColorSpace(const CFX_ByteString& name);
-  CPDF_Pattern* FindPattern(const CFX_ByteString& name, bool bShading);
-  CPDF_Object* FindResourceObj(const CFX_ByteString& type,
-                               const CFX_ByteString& name);
+  RetainPtr<CPDF_ColorSpace> FindColorSpace(const ByteString& name);
+  RetainPtr<CPDF_Pattern> FindPattern(const ByteString& name);
+  RetainPtr<CPDF_ShadingPattern> FindShading(const ByteString& name);
+  RetainPtr<CPDF_Dictionary> FindResourceHolder(ByteStringView type);
+  RetainPtr<CPDF_Object> FindResourceObj(ByteStringView type,
+                                         const ByteString& name);
 
   // Takes ownership of |pImageObj|, returns unowned pointer to it.
   CPDF_ImageObject* AddImageObject(std::unique_ptr<CPDF_ImageObject> pImageObj);
+
+  std::vector<float> GetColors() const;
+  std::vector<float> GetNamedColors() const;
+  int32_t GetCurrentStreamIndex();
 
   void Handle_CloseFillStrokePath();
   void Handle_FillStrokePath();
@@ -187,37 +209,39 @@ class CPDF_StreamContentParser {
   void Handle_NextLineShowText_Space();
   void Handle_Invalid();
 
-  CPDF_Document* const m_pDocument;
-  CPDF_Dictionary* m_pPageResources;
-  CPDF_Dictionary* m_pParentResources;
-  CPDF_Dictionary* m_pResources;
-  CPDF_PageObjectHolder* m_pObjectHolder;
-  int m_Level;
-  CFX_Matrix m_mtContentToUser;
-  CFX_FloatRect m_BBox;
-  ContentParam m_ParamBuf[kParamBufSize];
-  uint32_t m_ParamStartPos;
-  uint32_t m_ParamCount;
-  CPDF_StreamParser* m_pSyntax;
-  std::unique_ptr<CPDF_AllStates> m_pCurStates;
-  CPDF_ContentMark m_CurContentMark;
-  std::vector<std::unique_ptr<CPDF_TextObject>> m_ClipTextList;
-  CPDF_TextObject* m_pLastTextObject;
-  FX_FLOAT m_DefFontSize;
-  FX_PATHPOINT* m_pPathPoints;
-  int m_PathPointCount;
-  int m_PathAllocSize;
-  FX_FLOAT m_PathStartX;
-  FX_FLOAT m_PathStartY;
-  FX_FLOAT m_PathCurrentX;
-  FX_FLOAT m_PathCurrentY;
-  uint8_t m_PathClipType;
-  CFX_ByteString m_LastImageName;
-  CPDF_Image* m_pLastImage;
-  bool m_bColored;
-  FX_FLOAT m_Type3Data[6];
-  bool m_bResourceMissing;
-  std::vector<std::unique_ptr<CPDF_AllStates>> m_StateStack;
+  UnownedPtr<CPDF_Document> const document_;
+  RetainPtr<CPDF_Dictionary> const page_resources_;
+  RetainPtr<CPDF_Dictionary> const parent_resources_;
+  RetainPtr<CPDF_Dictionary> const resources_;
+  UnownedPtr<CPDF_PageObjectHolder> const object_holder_;
+  UnownedPtr<CPDF_Form::RecursionState> const recursion_state_;
+  CFX_Matrix mt_content_to_user_;
+  const CFX_FloatRect bbox_;
+  uint32_t param_start_pos_ = 0;
+  uint32_t param_count_ = 0;
+  std::unique_ptr<CPDF_StreamParser> syntax_;
+  std::unique_ptr<CPDF_AllStates> cur_states_;
+  std::stack<std::unique_ptr<CPDF_ContentMarks>> content_marks_stack_;
+  std::vector<std::unique_ptr<CPDF_TextObject>> clip_text_list_;
+  std::vector<CFX_Path::Point> path_points_;
+  CFX_PointF path_start_;
+  CFX_PointF path_current_;
+  CFX_FillRenderOptions::FillType path_clip_type_ =
+      CFX_FillRenderOptions::FillType::kNoFill;
+  ByteString last_image_name_;
+  RetainPtr<CPDF_Image> last_image_;
+  bool colored_ = false;
+  std::vector<std::unique_ptr<CPDF_AllStates>> state_stack_;
+  std::array<float, 6> type3_data_ = {};
+  std::array<ContentParam, kParamBufSize> param_buf_;
+  CPDF_PageObjectHolder::CTMMap all_ctms_;
+
+  // The merged stream offsets at which a content stream ends and another
+  // begins.
+  std::vector<uint32_t> stream_start_offsets_;
+
+  // The merged stream offset at which the last |syntax_| started parsing.
+  uint32_t start_parse_offset_ = 0;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_STREAMCONTENTPARSER_H_

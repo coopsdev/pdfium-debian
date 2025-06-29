@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,41 +7,58 @@
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 
 #include <limits.h>
+#include <stddef.h>
 
 #include <algorithm>
+#include <array>
 #include <utility>
-#include <vector>
 
-#include "core/fpdfapi/cpdf_modulemgr.h"
+#include "build/build_config.h"
+#include "constants/stream_dict_common.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
-#include "core/fxcodec/fx_codec.h"
-#include "core/fxcrt/fx_ext.h"
-#include "third_party/base/stl_util.h"
+#include "core/fxcodec/data_and_bytes_consumed.h"
+#include "core/fxcodec/fax/faxmodule.h"
+#include "core/fxcodec/flate/flatemodule.h"
+#include "core/fxcodec/scanlinedecoder.h"
+#include "core/fxcrt/check.h"
+#include "core/fxcrt/compiler_specific.h"
+#include "core/fxcrt/containers/contains.h"
+#include "core/fxcrt/fx_extension.h"
+#include "core/fxcrt/fx_memcpy_wrappers.h"
+#include "core/fxcrt/fx_safe_types.h"
+#include "core/fxcrt/numerics/safe_conversions.h"
+#include "core/fxcrt/span.h"
+#include "core/fxcrt/stl_util.h"
+#include "core/fxcrt/utf16.h"
 
 namespace {
 
 const uint32_t kMaxStreamSize = 20 * 1024 * 1024;
 
 bool CheckFlateDecodeParams(int Colors, int BitsPerComponent, int Columns) {
-  if (Colors < 0 || BitsPerComponent < 0 || Columns < 0)
+  if (Colors < 0 || BitsPerComponent < 0 || Columns < 0) {
     return false;
+  }
 
-  int check = Columns;
-  if (check > 0 && Colors > INT_MAX / check)
-    return false;
-
+  FX_SAFE_INT32 check = Columns;
   check *= Colors;
-  if (check > 0 && BitsPerComponent > INT_MAX / check)
+  check *= BitsPerComponent;
+  if (!check.IsValid()) {
     return false;
+  }
 
-  return check * BitsPerComponent <= INT_MAX - 7;
+  return check.ValueOrDie() <= INT_MAX - 7;
+}
+
+uint8_t GetA85Result(uint32_t res, size_t i) {
+  return static_cast<uint8_t>(res >> (3 - i) * 8);
 }
 
 }  // namespace
 
-const uint16_t PDFDocEncoding[256] = {
+const std::array<uint16_t, 256> kPDFDocEncoding = {
     0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008,
     0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x000f, 0x0010, 0x0011,
     0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x02d8, 0x02c7, 0x02c6,
@@ -72,20 +89,45 @@ const uint16_t PDFDocEncoding[256] = {
     0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00f7, 0x00f8, 0x00f9, 0x00fa, 0x00fb,
     0x00fc, 0x00fd, 0x00fe, 0x00ff};
 
-uint32_t A85Decode(const uint8_t* src_buf,
-                   uint32_t src_size,
-                   uint8_t*& dest_buf,
-                   uint32_t& dest_size) {
-  dest_size = 0;
-  dest_buf = nullptr;
-  if (src_size == 0)
-    return 0;
+bool ValidateDecoderPipeline(const CPDF_Array* pDecoders) {
+  size_t count = pDecoders->size();
+  if (count == 0) {
+    return true;
+  }
+
+  for (size_t i = 0; i < count; ++i) {
+    RetainPtr<const CPDF_Object> object = pDecoders->GetDirectObjectAt(i);
+    if (!object || !object->IsName()) {
+      return false;
+    }
+  }
+
+  if (count == 1) {
+    return true;
+  }
+
+  // TODO(thestig): Consolidate all the places that use these filter names.
+  static const char kValidDecoders[][16] = {
+      "FlateDecode",    "Fl",  "LZWDecode",       "LZW", "ASCII85Decode", "A85",
+      "ASCIIHexDecode", "AHx", "RunLengthDecode", "RL"};
+  for (size_t i = 0; i < count - 1; ++i) {
+    if (!pdfium::Contains(kValidDecoders, pDecoders->GetByteStringAt(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+DataAndBytesConsumed A85Decode(pdfium::span<const uint8_t> src_span) {
+  if (src_span.empty()) {
+    return {DataVector<uint8_t>(), 0u};
+  }
 
   // Count legal characters and zeros.
   uint32_t zcount = 0;
   uint32_t pos = 0;
-  while (pos < src_size) {
-    uint8_t ch = src_buf[pos];
+  while (pos < src_span.size()) {
+    uint8_t ch = src_span[pos];
     if (ch == 'z') {
       zcount++;
     } else if ((ch < '!' || ch > 'u') && !PDFCharIsLineEnding(ch) &&
@@ -95,159 +137,183 @@ uint32_t A85Decode(const uint8_t* src_buf,
     pos++;
   }
   // No content to decode.
-  if (pos == 0)
-    return 0;
+  if (pos == 0) {
+    return {DataVector<uint8_t>(), 0u};
+  }
 
   // Count the space needed to contain non-zero characters. The encoding ratio
   // of Ascii85 is 4:5.
   uint32_t space_for_non_zeroes = (pos - zcount) / 5 * 4 + 4;
-  if (zcount > (UINT_MAX - space_for_non_zeroes) / 4) {
-    return (uint32_t)-1;
+  FX_SAFE_UINT32 size = zcount;
+  size *= 4;
+  size += space_for_non_zeroes;
+  if (!size.IsValid()) {
+    return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
   }
-  dest_buf = FX_Alloc(uint8_t, zcount * 4 + space_for_non_zeroes);
+
+  DataVector<uint8_t> dest_buf(size.ValueOrDie());
+  pdfium::span<uint8_t> dest_span(dest_buf);
   size_t state = 0;
   uint32_t res = 0;
-  pos = dest_size = 0;
-  while (pos < src_size) {
-    uint8_t ch = src_buf[pos++];
-    if (PDFCharIsLineEnding(ch) || ch == ' ' || ch == '\t')
+  pos = 0;
+  while (pos < src_span.size()) {
+    uint8_t ch = src_span[pos++];
+    if (PDFCharIsLineEnding(ch) || ch == ' ' || ch == '\t') {
       continue;
+    }
 
     if (ch == 'z') {
-      FXSYS_memset(dest_buf + dest_size, 0, 4);
+      std::ranges::fill(dest_span.first<4u>(), 0u);
+      dest_span = dest_span.subspan<4u>();
       state = 0;
       res = 0;
-      dest_size += 4;
-    } else if (ch >= '!' && ch <= 'u') {
-      res = res * 85 + ch - 33;
-      state++;
-      if (state == 5) {
-        for (size_t i = 0; i < 4; i++) {
-          dest_buf[dest_size++] = (uint8_t)(res >> (3 - i) * 8);
-        }
-        state = 0;
-        res = 0;
-      }
-    } else {
-      // The end or illegal character.
+      continue;
+    }
+
+    // Check for the end or illegal character.
+    if (ch < '!' || ch > 'u') {
       break;
     }
+
+    res = res * 85 + ch - 33;
+    if (state < 4) {
+      ++state;
+      continue;
+    }
+
+    for (size_t i = 0; i < 4; ++i) {
+      dest_span.front() = GetA85Result(res, i);
+      dest_span = dest_span.subspan<1u>();
+    }
+    state = 0;
+    res = 0;
   }
   // Handle partial group.
   if (state) {
-    for (size_t i = state; i < 5; i++)
+    for (size_t i = state; i < 5; ++i) {
       res = res * 85 + 84;
-    for (size_t i = 0; i < state - 1; i++)
-      dest_buf[dest_size++] = (uint8_t)(res >> (3 - i) * 8);
+    }
+    for (size_t i = 0; i < state - 1; ++i) {
+      dest_span.front() = GetA85Result(res, i);
+      dest_span = dest_span.subspan<1u>();
+    }
   }
-  if (pos < src_size && src_buf[pos] == '>')
-    pos++;
-  return pos;
+  if (pos < src_span.size() && src_span[pos] == '>') {
+    ++pos;
+  }
+  dest_buf.resize(dest_buf.size() - dest_span.size());
+  return {std::move(dest_buf), pos};
 }
 
-uint32_t HexDecode(const uint8_t* src_buf,
-                   uint32_t src_size,
-                   uint8_t*& dest_buf,
-                   uint32_t& dest_size) {
-  dest_size = 0;
-  if (src_size == 0) {
-    dest_buf = nullptr;
-    return 0;
+DataAndBytesConsumed HexDecode(pdfium::span<const uint8_t> src_span) {
+  if (src_span.empty()) {
+    return {DataVector<uint8_t>(), 0u};
   }
 
   uint32_t i = 0;
   // Find the end of data.
-  while (i < src_size && src_buf[i] != '>')
-    i++;
+  while (i < src_span.size() && src_span[i] != '>') {
+    ++i;
+  }
 
-  dest_buf = FX_Alloc(uint8_t, i / 2 + 1);
-  bool bFirst = true;
-  for (i = 0; i < src_size; i++) {
-    uint8_t ch = src_buf[i];
-    if (PDFCharIsLineEnding(ch) || ch == ' ' || ch == '\t')
+  DataVector<uint8_t> dest_buf(i / 2 + 1);
+  pdfium::span<uint8_t> dest_span(dest_buf);
+  bool is_first = true;
+  for (i = 0; i < src_span.size(); ++i) {
+    uint8_t ch = src_span[i];
+    if (PDFCharIsLineEnding(ch) || ch == ' ' || ch == '\t') {
       continue;
+    }
 
     if (ch == '>') {
       ++i;
       break;
     }
-    if (!std::isxdigit(ch))
+    if (!FXSYS_IsHexDigit(ch)) {
       continue;
+    }
 
-    int digit = FXSYS_toHexDigit(ch);
-    if (bFirst)
-      dest_buf[dest_size] = digit * 16;
-    else
-      dest_buf[dest_size++] += digit;
-
-    bFirst = !bFirst;
+    int digit = FXSYS_HexCharToInt(ch);
+    if (is_first) {
+      dest_span.front() = digit * 16;
+    } else {
+      dest_span.front() += digit;
+      dest_span = dest_span.subspan<1u>();
+    }
+    is_first = !is_first;
   }
-  if (!bFirst)
-    dest_size++;
-  return i;
+  size_t dest_size = dest_buf.size() - dest_span.size();
+  if (!is_first) {
+    ++dest_size;
+  }
+  dest_buf.resize(dest_size);
+  return {std::move(dest_buf), i};
 }
 
-uint32_t RunLengthDecode(const uint8_t* src_buf,
-                         uint32_t src_size,
-                         uint8_t*& dest_buf,
-                         uint32_t& dest_size) {
-  uint32_t i = 0;
-  dest_size = 0;
-  while (i < src_size) {
-    if (src_buf[i] == 128)
+DataAndBytesConsumed RunLengthDecode(pdfium::span<const uint8_t> src_span) {
+  uint32_t dest_size = 0;
+  size_t i = 0;
+  while (i < src_span.size()) {
+    if (src_span[i] == 128) {
       break;
+    }
 
     uint32_t old = dest_size;
-    if (src_buf[i] < 128) {
-      dest_size += src_buf[i] + 1;
-      if (dest_size < old)
-        return FX_INVALID_OFFSET;
-      i += src_buf[i] + 2;
+    if (src_span[i] < 128) {
+      dest_size += src_span[i] + 1;
+      if (dest_size < old) {
+        return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
+      }
+      i += src_span[i] + 2;
     } else {
-      dest_size += 257 - src_buf[i];
-      if (dest_size < old)
-        return FX_INVALID_OFFSET;
+      dest_size += 257 - src_span[i];
+      if (dest_size < old) {
+        return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
+      }
       i += 2;
     }
   }
-  if (dest_size >= kMaxStreamSize)
-    return FX_INVALID_OFFSET;
+  if (dest_size >= kMaxStreamSize) {
+    return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
+  }
 
-  dest_buf = FX_Alloc(uint8_t, dest_size);
+  DataVector<uint8_t> dest_buf(dest_size);
+  auto dest_span = pdfium::span(dest_buf);
   i = 0;
   int dest_count = 0;
-  while (i < src_size) {
-    if (src_buf[i] == 128)
+  while (i < src_span.size()) {
+    if (src_span[i] == 128) {
       break;
+    }
 
-    if (src_buf[i] < 128) {
-      uint32_t copy_len = src_buf[i] + 1;
-      uint32_t buf_left = src_size - i - 1;
+    if (src_span[i] < 128) {
+      uint32_t copy_len = src_span[i] + 1;
+      uint32_t buf_left = src_span.size() - i - 1;
       if (buf_left < copy_len) {
         uint32_t delta = copy_len - buf_left;
         copy_len = buf_left;
-        FXSYS_memset(dest_buf + dest_count + copy_len, '\0', delta);
+        std::ranges::fill(dest_span.subspan(dest_count + copy_len, delta), 0);
       }
-      FXSYS_memcpy(dest_buf + dest_count, src_buf + i + 1, copy_len);
-      dest_count += src_buf[i] + 1;
-      i += src_buf[i] + 2;
+      auto copy_span = src_span.subspan(i + 1, copy_len);
+      fxcrt::Copy(copy_span,
+                  dest_span.subspan(static_cast<size_t>(dest_count)));
+      dest_count += src_span[i] + 1;
+      i += src_span[i] + 2;
     } else {
-      int fill = 0;
-      if (i < src_size - 1) {
-        fill = src_buf[i + 1];
-      }
-      FXSYS_memset(dest_buf + dest_count, fill, 257 - src_buf[i]);
-      dest_count += 257 - src_buf[i];
+      const uint8_t fill = i + 1 < src_span.size() ? src_span[i + 1] : 0;
+      const size_t fill_size = 257 - src_span[i];
+      std::ranges::fill(
+          dest_span.subspan(static_cast<size_t>(dest_count), fill_size), fill);
+      dest_count += fill_size;
       i += 2;
     }
   }
-
-  return std::min(i + 1, src_size);
+  return {std::move(dest_buf),
+          pdfium::checked_cast<uint32_t>(std::min(i + 1, src_span.size()))};
 }
 
-std::unique_ptr<CCodec_ScanlineDecoder> FPDFAPI_CreateFaxDecoder(
-    const uint8_t* src_buf,
-    uint32_t src_size,
+std::unique_ptr<ScanlineDecoder> CreateFaxDecoder(
+    pdfium::span<const uint8_t> src_span,
     int width,
     int height,
     const CPDF_Dictionary* pParams) {
@@ -268,41 +334,39 @@ std::unique_ptr<CCodec_ScanlineDecoder> FPDFAPI_CreateFaxDecoder(
       Rows = 0;
     }
   }
-  return CPDF_ModuleMgr::Get()->GetFaxModule()->CreateDecoder(
-      src_buf, src_size, width, height, K, EndOfLine, ByteAlign, BlackIs1,
-      Columns, Rows);
+  return FaxModule::CreateDecoder(src_span, width, height, K, EndOfLine,
+                                  ByteAlign, BlackIs1, Columns, Rows);
 }
 
-std::unique_ptr<CCodec_ScanlineDecoder> FPDFAPI_CreateFlateDecoder(
-    const uint8_t* src_buf,
-    uint32_t src_size,
+std::unique_ptr<ScanlineDecoder> CreateFlateDecoder(
+    pdfium::span<const uint8_t> src_span,
     int width,
     int height,
     int nComps,
     int bpc,
     const CPDF_Dictionary* pParams) {
   int predictor = 0;
-  int Colors = 0, BitsPerComponent = 0, Columns = 0;
+  int Colors = 0;
+  int BitsPerComponent = 0;
+  int Columns = 0;
   if (pParams) {
     predictor = pParams->GetIntegerFor("Predictor");
     Colors = pParams->GetIntegerFor("Colors", 1);
     BitsPerComponent = pParams->GetIntegerFor("BitsPerComponent", 8);
     Columns = pParams->GetIntegerFor("Columns", 1);
-    if (!CheckFlateDecodeParams(Colors, BitsPerComponent, Columns))
+    if (!CheckFlateDecodeParams(Colors, BitsPerComponent, Columns)) {
       return nullptr;
+    }
   }
-  return CPDF_ModuleMgr::Get()->GetFlateModule()->CreateDecoder(
-      src_buf, src_size, width, height, nComps, bpc, predictor, Colors,
-      BitsPerComponent, Columns);
+  return FlateModule::CreateDecoder(src_span, width, height, nComps, bpc,
+                                    predictor, Colors, BitsPerComponent,
+                                    Columns);
 }
 
-uint32_t FPDFAPI_FlateOrLZWDecode(bool bLZW,
-                                  const uint8_t* src_buf,
-                                  uint32_t src_size,
-                                  CPDF_Dictionary* pParams,
-                                  uint32_t estimated_size,
-                                  uint8_t*& dest_buf,
-                                  uint32_t& dest_size) {
+DataAndBytesConsumed FlateOrLZWDecode(bool use_lzw,
+                                      pdfium::span<const uint8_t> src_span,
+                                      const CPDF_Dictionary* pParams,
+                                      uint32_t estimated_size) {
   int predictor = 0;
   int Colors = 0;
   int BitsPerComponent = 0;
@@ -314,80 +378,120 @@ uint32_t FPDFAPI_FlateOrLZWDecode(bool bLZW,
     Colors = pParams->GetIntegerFor("Colors", 1);
     BitsPerComponent = pParams->GetIntegerFor("BitsPerComponent", 8);
     Columns = pParams->GetIntegerFor("Columns", 1);
-    if (!CheckFlateDecodeParams(Colors, BitsPerComponent, Columns))
-      return (uint32_t)-1;
+    if (!CheckFlateDecodeParams(Colors, BitsPerComponent, Columns)) {
+      return {DataVector<uint8_t>(), FX_INVALID_OFFSET};
+    }
   }
-  return CPDF_ModuleMgr::Get()->GetFlateModule()->FlateOrLZWDecode(
-      bLZW, src_buf, src_size, bEarlyChange, predictor, Colors,
-      BitsPerComponent, Columns, estimated_size, dest_buf, dest_size);
+  return FlateModule::FlateOrLZWDecode(use_lzw, src_span, bEarlyChange,
+                                       predictor, Colors, BitsPerComponent,
+                                       Columns, estimated_size);
 }
 
-bool PDF_DataDecode(const uint8_t* src_buf,
-                    uint32_t src_size,
-                    const CPDF_Dictionary* pDict,
-                    uint8_t*& dest_buf,
-                    uint32_t& dest_size,
-                    CFX_ByteString& ImageEncoding,
-                    CPDF_Dictionary*& pImageParms,
-                    uint32_t last_estimated_size,
-                    bool bImageAcc) {
-  CPDF_Object* pDecoder = pDict ? pDict->GetDirectObjectFor("Filter") : nullptr;
-  if (!pDecoder || (!pDecoder->IsArray() && !pDecoder->IsName()))
-    return false;
+std::optional<DecoderArray> GetDecoderArray(
+    RetainPtr<const CPDF_Dictionary> dict) {
+  RetainPtr<const CPDF_Object> pFilter = dict->GetDirectObjectFor("Filter");
+  if (!pFilter) {
+    return DecoderArray();
+  }
 
-  CPDF_Object* pParams =
-      pDict ? pDict->GetDirectObjectFor("DecodeParms") : nullptr;
+  if (!pFilter->IsArray() && !pFilter->IsName()) {
+    return std::nullopt;
+  }
 
-  std::vector<std::pair<CFX_ByteString, CPDF_Object*>> DecoderArray;
-  if (CPDF_Array* pDecoders = pDecoder->AsArray()) {
-    CPDF_Array* pParamsArray = ToArray(pParams);
-    for (size_t i = 0; i < pDecoders->GetCount(); i++) {
-      DecoderArray.push_back(
-          {pDecoders->GetStringAt(i),
-           pParamsArray ? pParamsArray->GetDictAt(i) : nullptr});
+  RetainPtr<const CPDF_Object> pParams =
+      dict->GetDirectObjectFor(pdfium::stream::kDecodeParms);
+
+  DecoderArray decoder_array;
+  if (const CPDF_Array* pDecoders = pFilter->AsArray()) {
+    if (!ValidateDecoderPipeline(pDecoders)) {
+      return std::nullopt;
+    }
+
+    RetainPtr<const CPDF_Array> pParamsArray = ToArray(pParams);
+    for (size_t i = 0; i < pDecoders->size(); ++i) {
+      decoder_array.emplace_back(
+          pDecoders->GetByteStringAt(i),
+          pParamsArray ? pParamsArray->GetDictAt(i) : nullptr);
     }
   } else {
-    DecoderArray.push_back(
-        {pDecoder->GetString(), pParams ? pParams->GetDict() : nullptr});
+    DCHECK(pFilter->IsName());
+    decoder_array.emplace_back(pFilter->GetString(),
+                               pParams ? pParams->GetDict() : nullptr);
   }
-  uint8_t* last_buf = const_cast<uint8_t*>(src_buf);
-  uint32_t last_size = src_size;
-  int nSize = pdfium::CollectionSize<int>(DecoderArray);
-  for (int i = 0; i < nSize; i++) {
+
+  return decoder_array;
+}
+
+PDFDataDecodeResult::PDFDataDecodeResult() = default;
+
+PDFDataDecodeResult::PDFDataDecodeResult(
+    DataVector<uint8_t> data,
+    ByteString image_encoding,
+    RetainPtr<const CPDF_Dictionary> image_params)
+    : data(std::move(data)),
+      image_encoding(std::move(image_encoding)),
+      image_params(std::move(image_params)) {}
+
+PDFDataDecodeResult::PDFDataDecodeResult(PDFDataDecodeResult&& that) noexcept =
+    default;
+
+PDFDataDecodeResult& PDFDataDecodeResult::operator=(
+    PDFDataDecodeResult&& that) noexcept = default;
+
+PDFDataDecodeResult::~PDFDataDecodeResult() = default;
+
+std::optional<PDFDataDecodeResult> PDF_DataDecode(
+    pdfium::span<const uint8_t> src_span,
+    uint32_t last_estimated_size,
+    bool bImageAcc,
+    const DecoderArray& decoder_array) {
+  PDFDataDecodeResult result;
+  // May be changed to point to `result.data` in the for-loop below. So put it
+  // below `result` and let it get destroyed first.
+  pdfium::span<const uint8_t> last_span = src_span;
+  const size_t nSize = decoder_array.size();
+  for (size_t i = 0; i < nSize; ++i) {
     int estimated_size = i == nSize - 1 ? last_estimated_size : 0;
-    CFX_ByteString decoder = DecoderArray[i].first;
-    CPDF_Dictionary* pParam = ToDictionary(DecoderArray[i].second);
-    uint8_t* new_buf = nullptr;
-    uint32_t new_size = (uint32_t)-1;
-    int offset = -1;
+    ByteString decoder = decoder_array[i].first;
+    RetainPtr<const CPDF_Dictionary> pParam =
+        ToDictionary(decoder_array[i].second);
+    DataVector<uint8_t> new_buf;
+    uint32_t bytes_consumed = FX_INVALID_OFFSET;
+    if (decoder == "Crypt") {
+      continue;
+    }
     if (decoder == "FlateDecode" || decoder == "Fl") {
       if (bImageAcc && i == nSize - 1) {
-        ImageEncoding = "FlateDecode";
-        dest_buf = (uint8_t*)last_buf;
-        dest_size = last_size;
-        pImageParms = pParam;
-        return true;
+        result.image_encoding = "FlateDecode";
+        result.image_params = std::move(pParam);
+        return result;
       }
-      offset = FPDFAPI_FlateOrLZWDecode(false, last_buf, last_size, pParam,
-                                        estimated_size, new_buf, new_size);
+      DataAndBytesConsumed decode_result = FlateOrLZWDecode(
+          /*use_lzw=*/false, last_span, pParam, estimated_size);
+      new_buf = std::move(decode_result.data);
+      bytes_consumed = decode_result.bytes_consumed;
     } else if (decoder == "LZWDecode" || decoder == "LZW") {
-      offset = FPDFAPI_FlateOrLZWDecode(true, last_buf, last_size, pParam,
-                                        estimated_size, new_buf, new_size);
+      DataAndBytesConsumed decode_result =
+          FlateOrLZWDecode(/*use_lzw=*/true, last_span, pParam, estimated_size);
+      new_buf = std::move(decode_result.data);
+      bytes_consumed = decode_result.bytes_consumed;
     } else if (decoder == "ASCII85Decode" || decoder == "A85") {
-      offset = A85Decode(last_buf, last_size, new_buf, new_size);
+      DataAndBytesConsumed decode_result = A85Decode(last_span);
+      new_buf = std::move(decode_result.data);
+      bytes_consumed = decode_result.bytes_consumed;
     } else if (decoder == "ASCIIHexDecode" || decoder == "AHx") {
-      offset = HexDecode(last_buf, last_size, new_buf, new_size);
+      DataAndBytesConsumed decode_result = HexDecode(last_span);
+      new_buf = std::move(decode_result.data);
+      bytes_consumed = decode_result.bytes_consumed;
     } else if (decoder == "RunLengthDecode" || decoder == "RL") {
       if (bImageAcc && i == nSize - 1) {
-        ImageEncoding = "RunLengthDecode";
-        dest_buf = (uint8_t*)last_buf;
-        dest_size = last_size;
-        pImageParms = pParam;
-        return true;
+        result.image_encoding = "RunLengthDecode";
+        result.image_params = std::move(pParam);
+        return result;
       }
-      offset = RunLengthDecode(last_buf, last_size, new_buf, new_size);
-    } else if (decoder == "Crypt") {
-      continue;
+      DataAndBytesConsumed decode_result = RunLengthDecode(last_span);
+      new_buf = std::move(decode_result.data);
+      bytes_consumed = decode_result.bytes_consumed;
     } else {
       // If we get here, assume it's an image decoder.
       if (decoder == "DCT") {
@@ -395,93 +499,86 @@ bool PDF_DataDecode(const uint8_t* src_buf,
       } else if (decoder == "CCF") {
         decoder = "CCITTFaxDecode";
       }
-      ImageEncoding = decoder;
-      pImageParms = pParam;
-      dest_buf = (uint8_t*)last_buf;
-      dest_size = last_size;
-      if (CPDF_Array* pDecoders = pDecoder->AsArray())
-        pDecoders->RemoveAt(i + 1, pDecoders->GetCount() - i - 1);
-      return true;
-    }
-    if (last_buf != src_buf) {
-      FX_Free(last_buf);
-    }
-    if (offset == -1) {
-      FX_Free(new_buf);
-      return false;
-    }
-    last_buf = new_buf;
-    last_size = new_size;
-  }
-  ImageEncoding = "";
-  pImageParms = nullptr;
-  dest_buf = last_buf;
-  dest_size = last_size;
-  return true;
-}
-
-CFX_WideString PDF_DecodeText(const uint8_t* src_data, uint32_t src_len) {
-  CFX_WideString result;
-  if (src_len >= 2 && ((src_data[0] == 0xfe && src_data[1] == 0xff) ||
-                       (src_data[0] == 0xff && src_data[1] == 0xfe))) {
-    bool bBE = src_data[0] == 0xfe;
-    uint32_t max_chars = (src_len - 2) / 2;
-    if (!max_chars) {
+      result.image_encoding = std::move(decoder);
+      result.image_params = std::move(pParam);
       return result;
     }
-    if (src_data[0] == 0xff) {
-      bBE = !src_data[2];
+    if (bytes_consumed == FX_INVALID_OFFSET) {
+      return std::nullopt;
     }
-    FX_WCHAR* dest_buf = result.GetBuffer(max_chars);
-    const uint8_t* uni_str = src_data + 2;
-    int dest_pos = 0;
-    for (uint32_t i = 0; i < max_chars * 2; i += 2) {
-      uint16_t unicode = bBE ? (uni_str[i] << 8 | uni_str[i + 1])
-                             : (uni_str[i + 1] << 8 | uni_str[i]);
-      if (unicode == 0x1b) {
-        i += 2;
-        while (i < max_chars * 2) {
-          uint16_t unicode2 = bBE ? (uni_str[i] << 8 | uni_str[i + 1])
-                                  : (uni_str[i + 1] << 8 | uni_str[i]);
-          i += 2;
-          if (unicode2 == 0x1b)
-            break;
-        }
-      } else {
-        dest_buf[dest_pos++] = unicode;
-      }
-    }
-    result.ReleaseBuffer(dest_pos);
-  } else {
-    FX_WCHAR* dest_buf = result.GetBuffer(src_len);
-    for (uint32_t i = 0; i < src_len; i++)
-      dest_buf[i] = PDFDocEncoding[src_data[i]];
-    result.ReleaseBuffer(src_len);
+
+    last_span = pdfium::span(new_buf);
+    result.data = std::move(new_buf);
   }
+
+  result.image_encoding.clear();
+  result.image_params = nullptr;
   return result;
 }
 
-CFX_WideString PDF_DecodeText(const CFX_ByteString& bstr) {
-  return PDF_DecodeText((const uint8_t*)bstr.c_str(), bstr.GetLength());
+static size_t StripLanguageCodes(pdfium::span<wchar_t> s, size_t n) {
+  size_t dest_pos = 0;
+  for (size_t i = 0; i < n; ++i) {
+    // 0x001B is a begin/end marker for language metadata region that
+    // should not be in the decoded text.
+    if (s[i] == 0x001B) {
+      for (++i; i < n && s[i] != 0x001B; ++i) {
+        // No for-loop body. The loop searches for the terminating 0x001B.
+      }
+      continue;
+    }
+    s[dest_pos++] = s[i];
+  }
+  return dest_pos;
 }
 
-CFX_ByteString PDF_EncodeText(const FX_WCHAR* pString, int len) {
-  if (len == -1) {
-    len = FXSYS_wcslen(pString);
+WideString PDF_DecodeText(pdfium::span<const uint8_t> span) {
+  size_t dest_pos = 0;
+  WideString result;
+  if (span.size() >= 2 && ((span[0] == 0xfe && span[1] == 0xff) ||
+                           (span[0] == 0xff && span[1] == 0xfe))) {
+    if (span[0] == 0xfe) {
+      result = WideString::FromUTF16BE(span.subspan<2u>());
+    } else {
+      result = WideString::FromUTF16LE(span.subspan<2u>());
+    }
+    pdfium::span<wchar_t> dest_buf = result.GetBuffer(result.GetLength());
+    dest_pos = StripLanguageCodes(dest_buf, result.GetLength());
+  } else if (span.size() >= 3 && span[0] == 0xef && span[1] == 0xbb &&
+             span[2] == 0xbf) {
+    result = WideString::FromUTF8(ByteStringView(span.subspan<3u>()));
+    pdfium::span<wchar_t> dest_buf = result.GetBuffer(result.GetLength());
+    dest_pos = StripLanguageCodes(dest_buf, result.GetLength());
+  } else {
+    pdfium::span<wchar_t> dest_buf = result.GetBuffer(span.size());
+    for (size_t i = 0; i < span.size(); ++i) {
+      dest_buf[i] = kPDFDocEncoding[span[i]];
+    }
+    dest_pos = span.size();
   }
-  CFX_ByteString result;
-  FX_CHAR* dest_buf1 = result.GetBuffer(len);
-  int i;
-  for (i = 0; i < len; i++) {
-    int code;
-    for (code = 0; code < 256; code++)
-      if (PDFDocEncoding[code] == pString[i]) {
+  result.ReleaseBuffer(dest_pos);
+  return result;
+}
+
+ByteString PDF_EncodeText(WideStringView str) {
+  size_t i = 0;
+  size_t len = str.GetLength();
+  ByteString result;
+  {
+    pdfium::span<char> dest_buf = result.GetBuffer(len);
+    for (i = 0; i < len; ++i) {
+      int code;
+      for (code = 0; code < 256; ++code) {
+        if (kPDFDocEncoding[code] == str[i]) {
+          break;
+        }
+      }
+      if (code == 256) {
         break;
       }
-    if (code == 256) {
-      break;
+
+      dest_buf[i] = code;
     }
-    dest_buf1[i] = code;
   }
   result.ReleaseBuffer(i);
   if (i == len) {
@@ -493,83 +590,57 @@ CFX_ByteString PDF_EncodeText(const FX_WCHAR* pString, int len) {
     return result;
   }
 
-  int encLen = len * 2 + 2;
+  size_t dest_index = 0;
+  {
+    std::u16string utf16 = FX_UTF16Encode(str);
+    // 2 bytes required per UTF-16 code unit.
+    pdfium::span<uint8_t> dest_buf =
+        pdfium::as_writable_bytes(result.GetBuffer(utf16.size() * 2 + 2));
 
-  uint8_t* dest_buf2 = (uint8_t*)result.GetBuffer(encLen);
-  dest_buf2[0] = 0xfe;
-  dest_buf2[1] = 0xff;
-  dest_buf2 += 2;
-  for (int j = 0; j < len; j++) {
-    *dest_buf2++ = pString[j] >> 8;
-    *dest_buf2++ = (uint8_t)pString[j];
+    dest_buf[dest_index++] = 0xfe;
+    dest_buf[dest_index++] = 0xff;
+    for (char16_t code_unit : utf16) {
+      dest_buf[dest_index++] = code_unit >> 8;
+      dest_buf[dest_index++] = static_cast<uint8_t>(code_unit);
+    }
   }
-  result.ReleaseBuffer(encLen);
+  result.ReleaseBuffer(dest_index);
   return result;
 }
 
-CFX_ByteString PDF_EncodeText(const CFX_WideString& str) {
-  return PDF_EncodeText(str.c_str(), str.GetLength());
-}
-
-CFX_ByteString PDF_EncodeString(const CFX_ByteString& src, bool bHex) {
-  CFX_ByteTextBuf result;
-  int srclen = src.GetLength();
-  if (bHex) {
-    result.AppendChar('<');
-    for (int i = 0; i < srclen; i++) {
-      result.AppendChar("0123456789ABCDEF"[src[i] / 16]);
-      result.AppendChar("0123456789ABCDEF"[src[i] % 16]);
-    }
-    result.AppendChar('>');
-    return result.MakeString();
-  }
-  result.AppendChar('(');
-  for (int i = 0; i < srclen; i++) {
+ByteString PDF_EncodeString(ByteStringView src) {
+  ByteString result;
+  result.Reserve(src.GetLength() + 2);
+  result += '(';
+  for (size_t i = 0; i < src.GetLength(); ++i) {
     uint8_t ch = src[i];
     if (ch == 0x0a) {
-      result << "\\n";
+      result += "\\n";
       continue;
     }
     if (ch == 0x0d) {
-      result << "\\r";
+      result += "\\r";
       continue;
     }
-    if (ch == ')' || ch == '\\' || ch == '(')
-      result.AppendChar('\\');
-    result.AppendChar(ch);
+    if (ch == ')' || ch == '\\' || ch == '(') {
+      result += '\\';
+    }
+    result += static_cast<char>(ch);
   }
-  result.AppendChar(')');
-  return result.MakeString();
+  result += ')';
+  return result;
 }
 
-bool FlateEncode(const uint8_t* src_buf,
-                 uint32_t src_size,
-                 uint8_t** dest_buf,
-                 uint32_t* dest_size) {
-  CCodec_ModuleMgr* pEncoders = CPDF_ModuleMgr::Get()->GetCodecModule();
-  return pEncoders &&
-         pEncoders->GetFlateModule()->Encode(src_buf, src_size, dest_buf,
-                                             dest_size);
-}
-
-bool PngEncode(const uint8_t* src_buf,
-               uint32_t src_size,
-               uint8_t** dest_buf,
-               uint32_t* dest_size) {
-  CCodec_ModuleMgr* pEncoders = CPDF_ModuleMgr::Get()->GetCodecModule();
-  return pEncoders &&
-         pEncoders->GetFlateModule()->PngEncode(src_buf, src_size, dest_buf,
-                                                dest_size);
-}
-
-uint32_t FlateDecode(const uint8_t* src_buf,
-                     uint32_t src_size,
-                     uint8_t*& dest_buf,
-                     uint32_t& dest_size) {
-  CCodec_ModuleMgr* pEncoders = CPDF_ModuleMgr::Get()->GetCodecModule();
-  if (pEncoders) {
-    return pEncoders->GetFlateModule()->FlateOrLZWDecode(
-        false, src_buf, src_size, false, 0, 0, 0, 0, 0, dest_buf, dest_size);
+ByteString PDF_HexEncodeString(ByteStringView src) {
+  ByteString result;
+  result.Reserve(2 * src.GetLength() + 2);
+  result += '<';
+  for (size_t i = 0; i < src.GetLength(); ++i) {
+    char buf[2];
+    FXSYS_IntToTwoHexChars(src[i], buf);
+    result += buf[0];
+    result += buf[1];
   }
-  return 0;
+  result += '>';
+  return result;
 }

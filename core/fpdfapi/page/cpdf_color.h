@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,35 +7,57 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_COLOR_H_
 #define CORE_FPDFAPI_PAGE_CPDF_COLOR_H_
 
-#include "core/fpdfapi/page/cpdf_colorspace.h"
-#include "core/fxcrt/fx_system.h"
+#include <stdint.h>
 
+#include <memory>
+#include <optional>
+#include <variant>
+#include <vector>
+
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
+#include "core/fxge/dib/fx_dib.h"
+
+class CPDF_ColorSpace;
 class CPDF_Pattern;
+class PatternValue;
 
 class CPDF_Color {
  public:
   CPDF_Color();
+  CPDF_Color(const CPDF_Color& that);
+
   ~CPDF_Color();
 
-  bool IsNull() const { return !m_pBuffer; }
+  CPDF_Color& operator=(const CPDF_Color& that);
+
+  bool IsNull() const;
   bool IsPattern() const;
+  void SetColorSpace(RetainPtr<CPDF_ColorSpace> colorspace);
+  void SetValueForNonPattern(std::vector<float> values);
+  void SetValueForPattern(RetainPtr<CPDF_Pattern> pattern,
+                          pdfium::span<float> values);
 
-  void Copy(const CPDF_Color* pSrc);
+  uint32_t ComponentCount() const;
+  bool IsColorSpaceRGB() const;
+  bool IsColorSpaceGray() const;
+  // Wrapper around GetRGB() that returns the RGB value as FX_COLORREF. The
+  // GetRGB() return value is clamped to fit into FX_COLORREF, where the color
+  // components are 8-bit fields within an unsigned integer.
+  std::optional<FX_COLORREF> GetColorRef() const;
+  std::optional<FX_RGB_STRUCT<float>> GetRGB() const;
 
-  void SetColorSpace(CPDF_ColorSpace* pCS);
-  void SetValue(FX_FLOAT* comp);
-  void SetValue(CPDF_Pattern* pPattern, FX_FLOAT* comp, int ncomps);
-
-  bool GetRGB(int& R, int& G, int& B) const;
-  CPDF_Pattern* GetPattern() const;
-  const CPDF_ColorSpace* GetColorSpace() const { return m_pCS; }
+  // Should only be called if IsPattern() returns true.
+  RetainPtr<CPDF_Pattern> GetPattern() const;
 
  protected:
-  void ReleaseBuffer();
-  void ReleaseColorSpace();
+  bool IsPatternInternal() const;
 
-  CPDF_ColorSpace* m_pCS;
-  FX_FLOAT* m_pBuffer;
+  std::variant<std::monostate,
+               std::vector<float>,  // Used for non-pattern colorspaces.
+               std::unique_ptr<PatternValue>>  // Used for pattern colorspaces.
+      color_data_;
+  RetainPtr<CPDF_ColorSpace> cs_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_COLOR_H_

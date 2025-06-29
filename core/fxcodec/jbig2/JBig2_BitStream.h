@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,20 @@
 #ifndef CORE_FXCODEC_JBIG2_JBIG2_BITSTREAM_H_
 #define CORE_FXCODEC_JBIG2_JBIG2_BITSTREAM_H_
 
-#include "core/fxcrt/fx_basic.h"
-
-class CPDF_StreamAcc;
+#include "core/fxcrt/raw_span.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
 
 class CJBig2_BitStream {
  public:
-  explicit CJBig2_BitStream(CPDF_StreamAcc* pSrcStream);
+  CJBig2_BitStream(pdfium::span<const uint8_t> pSrcStream, uint64_t key);
+  CJBig2_BitStream(const CJBig2_BitStream&) = delete;
+  CJBig2_BitStream& operator=(const CJBig2_BitStream&) = delete;
   ~CJBig2_BitStream();
 
   // TODO(thestig): readFoo() should return bool.
-  int32_t readNBits(uint32_t nBits, uint32_t* dwResult);
-  int32_t readNBits(uint32_t nBits, int32_t* nResult);
+  int32_t readNBits(uint32_t dwBits, uint32_t* dwResult);
+  int32_t readNBits(uint32_t dwBits, int32_t* nResult);
   int32_t read1Bit(uint32_t* dwResult);
   int32_t read1Bit(bool* bResult);
   int32_t read1Byte(uint8_t* cResult);
@@ -31,28 +33,23 @@ class CJBig2_BitStream {
   uint8_t getNextByte_arith() const;
   uint32_t getOffset() const;
   void setOffset(uint32_t dwOffset);
+  void addOffset(uint32_t dwDelta);
   uint32_t getBitPos() const;
   void setBitPos(uint32_t dwBitPos);
-  const uint8_t* getBuf() const;
-  uint32_t getLength() const { return m_dwLength; }
+  pdfium::span<const uint8_t> getBufSpan() const { return span_; }
   const uint8_t* getPointer() const;
-  void offset(uint32_t dwOffset);
   uint32_t getByteLeft() const;
-  uint32_t getObjNum() const;
+  uint64_t getKey() const { return key_; }
+  bool IsInBounds() const;
 
  private:
   void AdvanceBit();
-  bool IsInBound() const;
   uint32_t LengthInBits() const;
 
-  const uint8_t* m_pBuf;
-  uint32_t m_dwLength;
-  uint32_t m_dwByteIdx;
-  uint32_t m_dwBitIdx;
-  const uint32_t m_dwObjNum;
-
-  CJBig2_BitStream(const CJBig2_BitStream&) = delete;
-  void operator=(const CJBig2_BitStream&) = delete;
+  const pdfium::raw_span<const uint8_t> span_;
+  uint32_t byte_idx_ = 0;  // Must always be <= `span_.size()`.
+  uint32_t bit_idx_ = 0;   // Must Always be in [0..7].
+  const uint64_t key_;
 };
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_BITSTREAM_H_

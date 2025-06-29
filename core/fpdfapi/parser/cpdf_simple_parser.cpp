@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,165 +6,147 @@
 
 #include "core/fpdfapi/parser/cpdf_simple_parser.h"
 
+#include <stdint.h>
+
+#include <optional>
+
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fxcrt/check_op.h"
 
-CPDF_SimpleParser::CPDF_SimpleParser(const uint8_t* pData, uint32_t dwSize)
-    : m_pData(pData), m_dwSize(dwSize), m_dwCurPos(0) {}
+CPDF_SimpleParser::CPDF_SimpleParser(pdfium::span<const uint8_t> input)
+    : data_(input) {}
 
-CPDF_SimpleParser::CPDF_SimpleParser(const CFX_ByteStringC& str)
-    : m_pData(str.raw_str()), m_dwSize(str.GetLength()), m_dwCurPos(0) {}
+CPDF_SimpleParser::~CPDF_SimpleParser() = default;
 
-void CPDF_SimpleParser::ParseWord(const uint8_t*& pStart, uint32_t& dwSize) {
-  pStart = nullptr;
-  dwSize = 0;
-  uint8_t ch;
-  while (1) {
-    if (m_dwSize <= m_dwCurPos)
-      return;
-    ch = m_pData[m_dwCurPos++];
-    while (PDFCharIsWhitespace(ch)) {
-      if (m_dwSize <= m_dwCurPos)
-        return;
-      ch = m_pData[m_dwCurPos++];
-    }
-
-    if (ch != '%')
-      break;
-
-    while (1) {
-      if (m_dwSize <= m_dwCurPos)
-        return;
-      ch = m_pData[m_dwCurPos++];
-      if (PDFCharIsLineEnding(ch))
-        break;
-    }
+ByteStringView CPDF_SimpleParser::GetWord() {
+  std::optional<uint8_t> start_char = SkipSpacesAndComments();
+  if (!start_char.has_value()) {
+    return ByteStringView();
   }
 
-  uint32_t start_pos = m_dwCurPos - 1;
-  pStart = m_pData + start_pos;
-  if (PDFCharIsDelimiter(ch)) {
-    if (ch == '/') {
-      while (1) {
-        if (m_dwSize <= m_dwCurPos)
-          return;
-        ch = m_pData[m_dwCurPos++];
-        if (!PDFCharIsOther(ch) && !PDFCharIsNumeric(ch)) {
-          m_dwCurPos--;
-          dwSize = m_dwCurPos - start_pos;
-          return;
-        }
-      }
-    } else {
-      dwSize = 1;
-      if (ch == '<') {
-        if (m_dwSize <= m_dwCurPos)
-          return;
-        ch = m_pData[m_dwCurPos++];
-        if (ch == '<')
-          dwSize = 2;
-        else
-          m_dwCurPos--;
-      } else if (ch == '>') {
-        if (m_dwSize <= m_dwCurPos)
-          return;
-        ch = m_pData[m_dwCurPos++];
-        if (ch == '>')
-          dwSize = 2;
-        else
-          m_dwCurPos--;
-      }
-    }
-    return;
+  CHECK_GT(cur_position_, 0);
+  uint32_t start_position = cur_position_ - 1;
+  CHECK_LT(start_position, data_.size());
+
+  if (!PDFCharIsDelimiter(start_char.value())) {
+    return HandleNonDelimiter();
   }
 
-  dwSize = 1;
-  while (1) {
-    if (m_dwSize <= m_dwCurPos)
-      return;
-    ch = m_pData[m_dwCurPos++];
-
-    if (PDFCharIsDelimiter(ch) || PDFCharIsWhitespace(ch)) {
-      m_dwCurPos--;
-      break;
-    }
-    dwSize++;
+  switch (start_char.value()) {
+    case '/':
+      return HandleName();
+    case '<':
+      return HandleBeginAngleBracket();
+    case '>':
+      return HandleEndAngleBracket();
+    case '(':
+      return HandleParentheses();
+    default:
+      return GetDataToCurrentPosition(start_position);
   }
 }
 
-CFX_ByteStringC CPDF_SimpleParser::GetWord() {
-  const uint8_t* pStart;
-  uint32_t dwSize;
-  ParseWord(pStart, dwSize);
-  if (dwSize == 1 && pStart[0] == '<') {
-    while (m_dwCurPos < m_dwSize && m_pData[m_dwCurPos] != '>') {
-      m_dwCurPos++;
-    }
-    if (m_dwCurPos < m_dwSize) {
-      m_dwCurPos++;
-    }
-    return CFX_ByteStringC(pStart,
-                           (FX_STRSIZE)(m_dwCurPos - (pStart - m_pData)));
-  }
-  if (dwSize == 1 && pStart[0] == '(') {
-    int level = 1;
-    while (m_dwCurPos < m_dwSize) {
-      if (m_pData[m_dwCurPos] == ')') {
-        level--;
-        if (level == 0) {
-          break;
-        }
-      }
-      if (m_pData[m_dwCurPos] == '\\') {
-        if (m_dwSize <= m_dwCurPos) {
-          break;
-        }
-        m_dwCurPos++;
-      } else if (m_pData[m_dwCurPos] == '(') {
-        level++;
-      }
-      if (m_dwSize <= m_dwCurPos) {
-        break;
-      }
-      m_dwCurPos++;
-    }
-    if (m_dwCurPos < m_dwSize) {
-      m_dwCurPos++;
-    }
-    return CFX_ByteStringC(pStart,
-                           (FX_STRSIZE)(m_dwCurPos - (pStart - m_pData)));
-  }
-  return CFX_ByteStringC(pStart, dwSize);
+ByteStringView CPDF_SimpleParser::GetDataToCurrentPosition(
+    uint32_t start_position) const {
+  return ByteStringView(
+      data_.subspan(start_position, cur_position_ - start_position));
 }
 
-bool CPDF_SimpleParser::FindTagParamFromStart(const CFX_ByteStringC& token,
-                                              int nParams) {
-  nParams++;
-  uint32_t* pBuf = FX_Alloc(uint32_t, nParams);
-  int buf_index = 0;
-  int buf_count = 0;
-  m_dwCurPos = 0;
-  while (1) {
-    pBuf[buf_index++] = m_dwCurPos;
-    if (buf_index == nParams) {
-      buf_index = 0;
+std::optional<uint8_t> CPDF_SimpleParser::SkipSpacesAndComments() {
+  while (true) {
+    if (cur_position_ >= data_.size()) {
+      return std::nullopt;
     }
-    buf_count++;
-    if (buf_count > nParams) {
-      buf_count = nParams;
-    }
-    CFX_ByteStringC word = GetWord();
-    if (word.IsEmpty()) {
-      FX_Free(pBuf);
-      return false;
-    }
-    if (word == token) {
-      if (buf_count < nParams) {
-        continue;
+
+    // Skip whitespaces.
+    uint8_t cur_char = data_[cur_position_++];
+    while (PDFCharIsWhitespace(cur_char)) {
+      if (cur_position_ >= data_.size()) {
+        return std::nullopt;
       }
-      m_dwCurPos = pBuf[buf_index];
-      FX_Free(pBuf);
-      return true;
+      cur_char = data_[cur_position_++];
+    }
+
+    if (cur_char != '%') {
+      return cur_char;
+    }
+
+    // Skip comments.
+    while (true) {
+      if (cur_position_ >= data_.size()) {
+        return std::nullopt;
+      }
+
+      cur_char = data_[cur_position_++];
+      if (PDFCharIsLineEnding(cur_char)) {
+        break;
+      }
     }
   }
-  return false;
+}
+
+ByteStringView CPDF_SimpleParser::HandleName() {
+  uint32_t start_position = cur_position_ - 1;
+  while (cur_position_ < data_.size()) {
+    uint8_t cur_char = data_[cur_position_];
+    // Stop parsing after encountering a whitespace or delimiter.
+    if (PDFCharIsWhitespace(cur_char) || PDFCharIsDelimiter(cur_char)) {
+      return GetDataToCurrentPosition(start_position);
+    }
+    ++cur_position_;
+  }
+  return ByteStringView();
+}
+
+ByteStringView CPDF_SimpleParser::HandleBeginAngleBracket() {
+  uint32_t start_position = cur_position_ - 1;
+  if (cur_position_ >= data_.size()) {
+    return GetDataToCurrentPosition(start_position);
+  }
+
+  uint8_t cur_char = data_[cur_position_++];
+  // Stop parsing if encountering "<<".
+  if (cur_char == '<') {
+    return GetDataToCurrentPosition(start_position);
+  }
+
+  // Continue parsing until end of `data_` or closing bracket.
+  while (cur_position_ < data_.size() && cur_char != '>') {
+    cur_char = data_[cur_position_++];
+  }
+  return GetDataToCurrentPosition(start_position);
+}
+
+ByteStringView CPDF_SimpleParser::HandleEndAngleBracket() {
+  uint32_t start_position = cur_position_ - 1;
+  if (cur_position_ < data_.size() && data_[cur_position_] == '>') {
+    ++cur_position_;
+  }
+  return GetDataToCurrentPosition(start_position);
+}
+
+ByteStringView CPDF_SimpleParser::HandleParentheses() {
+  uint32_t start_position = cur_position_ - 1;
+  int level = 1;
+  while (cur_position_ < data_.size() && level > 0) {
+    uint8_t cur_char = data_[cur_position_++];
+    if (cur_char == '(') {
+      ++level;
+    } else if (cur_char == ')') {
+      --level;
+    }
+  }
+  return GetDataToCurrentPosition(start_position);
+}
+
+ByteStringView CPDF_SimpleParser::HandleNonDelimiter() {
+  uint32_t start_position = cur_position_ - 1;
+  while (cur_position_ < data_.size()) {
+    uint8_t cur_char = data_[cur_position_];
+    if (PDFCharIsDelimiter(cur_char) || PDFCharIsWhitespace(cur_char)) {
+      break;
+    }
+    ++cur_position_;
+  }
+  return GetDataToCurrentPosition(start_position);
 }

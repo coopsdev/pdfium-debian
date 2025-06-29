@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,28 +6,36 @@
 
 #include "core/fpdfapi/page/cpdf_shadingobject.h"
 
-#include "core/fpdfapi/page/cpdf_docpagedata.h"
+#include <utility>
+
 #include "core/fpdfapi/page/cpdf_shadingpattern.h"
-#include "core/fpdfapi/parser/cpdf_document.h"
 
-CPDF_ShadingObject::CPDF_ShadingObject() : m_pShading(nullptr) {}
+CPDF_ShadingObject::CPDF_ShadingObject(int32_t content_stream,
+                                       RetainPtr<CPDF_ShadingPattern> pattern,
+                                       const CFX_Matrix& matrix)
+    : CPDF_PageObject(content_stream),
+      shading_(std::move(pattern)),
+      matrix_(matrix) {}
 
-CPDF_ShadingObject::~CPDF_ShadingObject() {}
+CPDF_ShadingObject::~CPDF_ShadingObject() = default;
 
 CPDF_PageObject::Type CPDF_ShadingObject::GetType() const {
-  return SHADING;
+  return Type::kShading;
 }
 
 void CPDF_ShadingObject::Transform(const CFX_Matrix& matrix) {
-  if (m_ClipPath)
-    m_ClipPath.Transform(matrix);
+  CPDF_ClipPath& clip_path = mutable_clip_path();
+  if (clip_path.HasRef()) {
+    clip_path.Transform(matrix);
+  }
 
-  m_Matrix.Concat(matrix);
-  if (m_ClipPath) {
+  matrix_.Concat(matrix);
+  if (clip_path.HasRef()) {
     CalcBoundingBox();
   } else {
-    matrix.TransformRect(m_Left, m_Right, m_Top, m_Bottom);
+    SetRect(matrix.TransformRect(GetRect()));
   }
+  SetDirty(true);
 }
 
 bool CPDF_ShadingObject::IsShading() const {
@@ -43,11 +51,8 @@ const CPDF_ShadingObject* CPDF_ShadingObject::AsShading() const {
 }
 
 void CPDF_ShadingObject::CalcBoundingBox() {
-  if (!m_ClipPath)
+  if (!clip_path().HasRef()) {
     return;
-  CFX_FloatRect rect = m_ClipPath.GetClipBox();
-  m_Left = rect.left;
-  m_Bottom = rect.bottom;
-  m_Right = rect.right;
-  m_Top = rect.top;
+  }
+  SetRect(clip_path().GetClipBox());
 }

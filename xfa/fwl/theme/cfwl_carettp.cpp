@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,27 +6,28 @@
 
 #include "xfa/fwl/theme/cfwl_carettp.h"
 
+#include "xfa/fgas/graphics/cfgas_gecolor.h"
+#include "xfa/fgas/graphics/cfgas_gegraphics.h"
+#include "xfa/fgas/graphics/cfgas_gepath.h"
 #include "xfa/fwl/cfwl_caret.h"
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fxgraphics/cfx_color.h"
-#include "xfa/fxgraphics/cfx_path.h"
 
-CFWL_CaretTP::CFWL_CaretTP() {}
-CFWL_CaretTP::~CFWL_CaretTP() {}
+namespace pdfium {
 
-void CFWL_CaretTP::DrawBackground(CFWL_ThemeBackground* pParams) {
-  if (!pParams)
-    return;
+CFWL_CaretTP::CFWL_CaretTP() = default;
 
-  switch (pParams->m_iPart) {
-    case CFWL_Part::Background: {
-      if (!(pParams->m_dwStates & CFWL_PartState_HightLight))
+CFWL_CaretTP::~CFWL_CaretTP() = default;
+
+void CFWL_CaretTP::DrawBackground(const CFWL_ThemeBackground& pParams) {
+  switch (pParams.GetPart()) {
+    case CFWL_ThemePart::Part::kBackground: {
+      if (!(pParams.states_ & CFWL_PartState::kHightLight)) {
         return;
+      }
 
-      DrawCaretBK(pParams->m_pGraphics, pParams->m_dwStates,
-                  &(pParams->m_rtPart), (CFX_Color*)pParams->m_pData,
-                  &(pParams->m_matrix));
+      DrawCaretBK(pParams.GetGraphics(), pParams.states_, pParams.part_rect_,
+                  pParams.matrix_);
       break;
     }
     default:
@@ -34,19 +35,14 @@ void CFWL_CaretTP::DrawBackground(CFWL_ThemeBackground* pParams) {
   }
 }
 
-void CFWL_CaretTP::DrawCaretBK(CFX_Graphics* pGraphics,
-                               uint32_t dwStates,
-                               const CFX_RectF* pRect,
-                               CFX_Color* crFill,
-                               CFX_Matrix* pMatrix) {
-  CFX_Path path;
-  CFX_RectF rect = *pRect;
+void CFWL_CaretTP::DrawCaretBK(CFGAS_GEGraphics* pGraphics,
+                               Mask<CFWL_PartState> dwStates,
+                               const CFX_RectF& rect,
+                               const CFX_Matrix& matrix) {
+  CFGAS_GEPath path;
   path.AddRectangle(rect.left, rect.top, rect.width, rect.height);
-  if (crFill) {
-    pGraphics->SetFillColor(crFill);
-  } else {
-    CFX_Color crFilltemp(ArgbEncode(255, 0, 0, 0));
-    pGraphics->SetFillColor(&crFilltemp);
-  }
-  pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
+  pGraphics->SetFillColor(CFGAS_GEColor(ArgbEncode(255, 0, 0, 0)));
+  pGraphics->FillPath(path, CFX_FillRenderOptions::FillType::kWinding, matrix);
 }
+
+}  // namespace pdfium

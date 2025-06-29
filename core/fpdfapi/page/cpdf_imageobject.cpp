@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,26 +6,32 @@
 
 #include "core/fpdfapi/page/cpdf_imageobject.h"
 
-#include <memory>
+#include <utility>
 
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/cpdf_image.h"
-#include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_stream.h"
+#include "core/fxcrt/fx_coordinates.h"
+#include "core/fxge/dib/cfx_dibbase.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
 
-CPDF_ImageObject::CPDF_ImageObject()
-    : m_pImage(nullptr), m_pImageOwned(false) {}
+CPDF_ImageObject::CPDF_ImageObject(int32_t content_stream)
+    : CPDF_PageObject(content_stream) {}
+
+CPDF_ImageObject::CPDF_ImageObject() : CPDF_ImageObject(kNoContentStream) {}
 
 CPDF_ImageObject::~CPDF_ImageObject() {
-  Release();
+  MaybePurgeCache();
 }
 
 CPDF_PageObject::Type CPDF_ImageObject::GetType() const {
-  return IMAGE;
+  return Type::kImage;
 }
 
 void CPDF_ImageObject::Transform(const CFX_Matrix& matrix) {
-  m_Matrix.Concat(matrix);
+  matrix_.Concat(matrix);
   CalcBoundingBox();
+  SetDirty(true);
 }
 
 bool CPDF_ImageObject::IsImage() const {
@@ -41,37 +47,60 @@ const CPDF_ImageObject* CPDF_ImageObject::AsImage() const {
 }
 
 void CPDF_ImageObject::CalcBoundingBox() {
-  m_Left = 0;
-  m_Bottom = 0;
-  m_Right = 1.0f;
-  m_Top = 1.0f;
-  m_Matrix.TransformRect(m_Left, m_Right, m_Top, m_Bottom);
+  static constexpr CFX_FloatRect kRect(0.0f, 0.0f, 1.0f, 1.0f);
+  SetOriginalRect(kRect);
+  SetRect(matrix_.TransformRect(kRect));
 }
 
-void CPDF_ImageObject::SetOwnedImage(std::unique_ptr<CPDF_Image> pImage) {
-  Release();
-  m_pImage = pImage.release();
-  m_pImageOwned = true;
+void CPDF_ImageObject::SetImage(RetainPtr<CPDF_Image> pImage) {
+  MaybePurgeCache();
+  image_ = std::move(pImage);
 }
 
-void CPDF_ImageObject::SetUnownedImage(CPDF_Image* pImage) {
-  Release();
-  m_pImage = pImage;
-  m_pImageOwned = false;
+RetainPtr<CPDF_Image> CPDF_ImageObject::GetImage() const {
+  return image_;
 }
 
-void CPDF_ImageObject::Release() {
-  if (m_pImageOwned) {
-    delete m_pImage;
-    m_pImage = nullptr;
-    m_pImageOwned = false;
+RetainPtr<CFX_DIBitmap> CPDF_ImageObject::GetIndependentBitmap() const {
+  RetainPtr<CFX_DIBBase> pSource = GetImage()->LoadDIBBase();
+
+  // Realize() is non-virtual, and can't be overloaded by CPDF_DIB to
+  // return a full-up CPDF_DIB subclass. Instead, it only works upon the
+  // CFX_DIBBase, which is convenient since none of its members point to
+  // objects owned by |this| or the form containing |this|. As a result,
+  // the new bitmap may outlive them, giving the "independent" property
+  // this method is named after.
+  return pSource ? pSource->Realize() : nullptr;
+}
+
+void CPDF_ImageObject::SetInitialImageMatrix(const CFX_Matrix& matrix) {
+  InitializeOriginalMatrix(matrix);
+  SetImageMatrix(matrix);
+}
+
+void CPDF_ImageObject::SetImageMatrix(const CFX_Matrix& matrix) {
+  matrix_ = matrix;
+  CalcBoundingBox();
+}
+
+void CPDF_ImageObject::MaybePurgeCache() {
+  if (!image_ || image_->IsGoingToBeDestroyed()) {
     return;
   }
 
-  if (!m_pImage)
+  RetainPtr<const CPDF_Stream> pStream = image_->GetStream();
+  if (!pStream) {
     return;
+  }
 
-  CPDF_DocPageData* pPageData = m_pImage->GetDocument()->GetPageData();
-  pPageData->ReleaseImage(m_pImage->GetStream()->GetObjNum());
-  m_pImage = nullptr;
+  uint32_t objnum = pStream->GetObjNum();
+  if (!objnum) {
+    return;
+  }
+
+  auto* pDoc = image_->GetDocument();
+  CHECK(pDoc);
+
+  image_.Reset();  // Clear my reference before asking the cache.
+  pDoc->MaybePurgeImage(objnum);
 }

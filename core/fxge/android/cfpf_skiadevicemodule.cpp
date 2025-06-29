@@ -1,10 +1,12 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "core/fxge/android/cfpf_skiadevicemodule.h"
+
+#include <utility>
 
 #include "core/fxge/android/cfpf_skiafontmgr.h"
 
@@ -15,14 +17,15 @@ CFPF_SkiaDeviceModule* gs_pPFModule = nullptr;
 }  // namespace
 
 CFPF_SkiaDeviceModule* CFPF_GetSkiaDeviceModule() {
-  if (!gs_pPFModule)
+  if (!gs_pPFModule) {
     gs_pPFModule = new CFPF_SkiaDeviceModule;
+  }
   return gs_pPFModule;
 }
 
-CFPF_SkiaDeviceModule::~CFPF_SkiaDeviceModule() {
-  delete m_pFontMgr;
-}
+CFPF_SkiaDeviceModule::CFPF_SkiaDeviceModule() = default;
+
+CFPF_SkiaDeviceModule::~CFPF_SkiaDeviceModule() = default;
 
 void CFPF_SkiaDeviceModule::Destroy() {
   delete gs_pPFModule;
@@ -30,12 +33,12 @@ void CFPF_SkiaDeviceModule::Destroy() {
 }
 
 CFPF_SkiaFontMgr* CFPF_SkiaDeviceModule::GetFontMgr() {
-  if (!m_pFontMgr) {
-    m_pFontMgr = new CFPF_SkiaFontMgr;
-    if (!m_pFontMgr->InitFTLibrary()) {
-      delete m_pFontMgr;
+  if (!font_mgr_) {
+    auto pNewMgr = std::make_unique<CFPF_SkiaFontMgr>();
+    if (!pNewMgr->InitFTLibrary()) {
       return nullptr;
     }
+    font_mgr_ = std::move(pNewMgr);
   }
-  return m_pFontMgr;
+  return font_mgr_.get();
 }

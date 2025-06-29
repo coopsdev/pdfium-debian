@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,78 +7,67 @@
 #ifndef FPDFSDK_FPDFXFA_CPDFXFA_PAGE_H_
 #define FPDFSDK_FPDFXFA_CPDFXFA_PAGE_H_
 
-#include <memory>
+#include <optional>
 
-#include "core/fxcrt/fx_system.h"
+#include "core/fpdfapi/page/cpdf_page.h"
+#include "core/fpdfapi/page/ipdf_page.h"
+#include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
-class CFX_Matrix;
-class CPDFXFA_Context;
+class CFX_RenderDevice;
 class CPDF_Dictionary;
-class CPDF_Page;
+class CPDF_Document;
+class CPDFSDK_Annot;
+class CPDFSDK_PageView;
 class CXFA_FFPageView;
 
-class CPDFXFA_Page {
+class CPDFXFA_Page final : public IPDF_Page {
  public:
-  CPDFXFA_Page(CPDFXFA_Context* pContext, int page_index);
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
-  void Retain() { m_iRef++; }
-  void Release() {
-    if (--m_iRef <= 0)
-      delete this;
-  }
+  // IPDF_Page:
+  CPDF_Page* AsPDFPage() override;
+  CPDFXFA_Page* AsXFAPage() override;
+  CPDF_Document* GetDocument() const override;
+  float GetPageWidth() const override;
+  float GetPageHeight() const override;
+  CFX_Matrix GetDisplayMatrixForRect(const FX_RECT& rect,
+                                     int rotation) const override;
+  std::optional<CFX_PointF> DeviceToPage(
+      const FX_RECT& rect,
+      int rotation,
+      const CFX_PointF& device_point) const override;
+  std::optional<CFX_PointF> PageToDevice(
+      const FX_RECT& rect,
+      int rotation,
+      const CFX_PointF& page_point) const override;
 
   bool LoadPage();
-  bool LoadPDFPage(CPDF_Dictionary* pageDict);
-  CPDFXFA_Context* GetContext() const { return m_pContext; }
-  int GetPageIndex() const { return m_iPageIndex; }
-  CPDF_Page* GetPDFPage() const { return m_pPDFPage.get(); }
-  CXFA_FFPageView* GetXFAPageView() const { return m_pXFAPageView; }
-
-  void SetXFAPageView(CXFA_FFPageView* pPageView) {
-    m_pXFAPageView = pPageView;
-  }
-
-  FX_FLOAT GetPageWidth() const;
-  FX_FLOAT GetPageHeight() const;
-
-  void DeviceToPage(int start_x,
-                    int start_y,
-                    int size_x,
-                    int size_y,
-                    int rotate,
-                    int device_x,
-                    int device_y,
-                    double* page_x,
-                    double* page_y);
-  void PageToDevice(int start_x,
-                    int start_y,
-                    int size_x,
-                    int size_y,
-                    int rotate,
-                    double page_x,
-                    double page_y,
-                    int* device_x,
-                    int* device_y);
-
-  CFX_Matrix GetDisplayMatrix(int xPos,
-                              int yPos,
-                              int xSize,
-                              int ySize,
-                              int iRotate) const;
-
- protected:
-  // Refcounted class.
-  ~CPDFXFA_Page();
-
-  bool LoadPDFPage();
-  bool LoadXFAPageView();
+  void LoadPDFPageFromDict(RetainPtr<CPDF_Dictionary> pPageDict);
+  int GetPageIndex() const { return page_index_; }
+  void SetXFAPageViewIndex(int index) { page_index_ = index; }
+  CXFA_FFPageView* GetXFAPageView() const;
+  CPDFSDK_Annot* GetNextXFAAnnot(CPDFSDK_Annot* pSDKAnnot) const;
+  CPDFSDK_Annot* GetPrevXFAAnnot(CPDFSDK_Annot* pSDKAnnot) const;
+  CPDFSDK_Annot* GetFirstXFAAnnot(CPDFSDK_PageView* page_view) const;
+  CPDFSDK_Annot* GetLastXFAAnnot(CPDFSDK_PageView* page_view) const;
+  int HasFormFieldAtPoint(const CFX_PointF& point) const;
+  void DrawFocusAnnot(CFX_RenderDevice* pDevice,
+                      CPDFSDK_Annot* pAnnot,
+                      const CFX_Matrix& mtUser2Device,
+                      const FX_RECT& rtClip);
 
  private:
-  std::unique_ptr<CPDF_Page> m_pPDFPage;
-  CXFA_FFPageView* m_pXFAPageView;
-  CPDFXFA_Context* const m_pContext;
-  const int m_iPageIndex;
-  int m_iRef;
+  // Refcounted class.
+  CPDFXFA_Page(CPDF_Document* document, int page_index);
+  ~CPDFXFA_Page() override;
+
+  bool LoadPDFPage();
+
+  RetainPtr<CPDF_Page> pdfpage_;  // Backing page, if any.
+  UnownedPtr<CPDF_Document> const document_;
+  int page_index_;
 };
 
 #endif  // FPDFSDK_FPDFXFA_CPDFXFA_PAGE_H_

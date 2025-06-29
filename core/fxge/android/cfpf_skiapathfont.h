@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,34 @@
 #ifndef CORE_FXGE_ANDROID_CFPF_SKIAPATHFONT_H_
 #define CORE_FXGE_ANDROID_CFPF_SKIAPATHFONT_H_
 
-#include "core/fxcrt/fx_system.h"
-#include "core/fxge/android/cfpf_skiafontdescriptor.h"
+#include <stdint.h>
 
-#define FPF_SKIAFONTTYPE_Path 1
+#include "core/fxcrt/bytestring.h"
 
-class CFPF_SkiaPathFont : public CFPF_SkiaFontDescriptor {
+class CFPF_SkiaPathFont {
  public:
-  CFPF_SkiaPathFont() : m_pPath(nullptr) {}
-  ~CFPF_SkiaPathFont() override { FX_Free(m_pPath); }
+  CFPF_SkiaPathFont(const ByteString& path,
+                    const ByteString& family,
+                    uint32_t dwStyle,
+                    int32_t iFaceIndex,
+                    uint32_t dwCharsets,
+                    int32_t iGlyphNum);
+  ~CFPF_SkiaPathFont();
 
-  // CFPF_SkiaFontDescriptor
-  int32_t GetType() const override { return FPF_SKIAFONTTYPE_Path; }
+  const char* path() const { return path_.c_str(); }
+  const char* family() const { return family_.c_str(); }
+  uint32_t style() const { return style_; }
+  int32_t face_index() const { return face_index_; }
+  uint32_t charsets() const { return charsets_; }
+  int32_t glyph_num() const { return glyph_num_; }
 
-  void SetPath(const FX_CHAR* pPath) {
-    FX_Free(m_pPath);
-    int32_t iSize = FXSYS_strlen(pPath);
-    m_pPath = FX_Alloc(FX_CHAR, iSize + 1);
-    FXSYS_memcpy(m_pPath, pPath, iSize * sizeof(FX_CHAR));
-    m_pPath[iSize] = 0;
-  }
-  FX_CHAR* m_pPath;
+ private:
+  const ByteString path_;
+  const ByteString family_;
+  const uint32_t style_;
+  const int32_t face_index_;
+  const uint32_t charsets_;
+  const int32_t glyph_num_;
 };
 
 #endif  // CORE_FXGE_ANDROID_CFPF_SKIAPATHFONT_H_

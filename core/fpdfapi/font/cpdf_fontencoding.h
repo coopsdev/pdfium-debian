@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,57 +7,60 @@
 #ifndef CORE_FPDFAPI_FONT_CPDF_FONTENCODING_H_
 #define CORE_FPDFAPI_FONT_CPDF_FONTENCODING_H_
 
-#include <memory>
+#include <array>
 
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
-#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
+#include "core/fxge/fx_fontencoding.h"
 
-#define PDFFONT_ENCODING_BUILTIN 0
-#define PDFFONT_ENCODING_WINANSI 1
-#define PDFFONT_ENCODING_MACROMAN 2
-#define PDFFONT_ENCODING_MACEXPERT 3
-#define PDFFONT_ENCODING_STANDARD 4
-#define PDFFONT_ENCODING_ADOBE_SYMBOL 5
-#define PDFFONT_ENCODING_ZAPFDINGBATS 6
-#define PDFFONT_ENCODING_PDFDOC 7
-#define PDFFONT_ENCODING_MS_SYMBOL 8
-#define PDFFONT_ENCODING_UNICODE 9
+enum class FontEncoding {
+  kBuiltin = 0,
+  kWinAnsi = 1,
+  kMacRoman = 2,
+  kMacExpert = 3,
+  kStandard = 4,
+  kAdobeSymbol = 5,
+  kZapfDingbats = 6,
+  kPdfDoc = 7,
+  kMsSymbol = 8,
+};
 
-uint32_t FT_CharCodeFromUnicode(int encoding, FX_WCHAR unicode);
-FX_WCHAR FT_UnicodeFromCharCode(int encoding, uint32_t charcode);
+uint32_t CharCodeFromUnicodeForEncoding(fxge::FontEncoding encoding,
+                                        wchar_t unicode);
 
-FX_WCHAR PDF_UnicodeFromAdobeName(const FX_CHAR* name);
-CFX_ByteString PDF_AdobeNameFromUnicode(FX_WCHAR unicode);
+wchar_t UnicodeFromAppleRomanCharCode(uint8_t charcode);
 
-const uint16_t* PDF_UnicodesForPredefinedCharSet(int encoding);
-const FX_CHAR* PDF_CharNameFromPredefinedCharSet(int encoding,
-                                                 uint8_t charcode);
+pdfium::span<const uint16_t> UnicodesForPredefinedCharSet(
+    FontEncoding encoding);
+const char* CharNameFromPredefinedCharSet(FontEncoding encoding,
+                                          uint8_t charcode);
 
 class CPDF_Object;
 
 class CPDF_FontEncoding {
  public:
-  CPDF_FontEncoding();
-  explicit CPDF_FontEncoding(int PredefinedEncoding);
+  static constexpr size_t kEncodingTableSize = 256;
 
-  void LoadEncoding(CPDF_Object* pEncoding);
+  explicit CPDF_FontEncoding(FontEncoding predefined_encoding);
 
-  bool IsIdentical(CPDF_FontEncoding* pAnother) const;
+  bool IsIdentical(const CPDF_FontEncoding* pAnother) const;
 
-  FX_WCHAR UnicodeFromCharCode(uint8_t charcode) const {
-    return m_Unicodes[charcode];
+  wchar_t UnicodeFromCharCode(uint8_t charcode) const {
+    return unicodes_[charcode];
   }
-  int CharCodeFromUnicode(FX_WCHAR unicode) const;
+  int CharCodeFromUnicode(wchar_t unicode) const;
 
-  void SetUnicode(uint8_t charcode, FX_WCHAR unicode) {
-    m_Unicodes[charcode] = unicode;
+  void SetUnicode(uint8_t charcode, wchar_t unicode) {
+    unicodes_[charcode] = unicode;
   }
 
-  std::unique_ptr<CPDF_Object> Realize(CFX_WeakPtr<CFX_ByteStringPool> pPool);
+  RetainPtr<CPDF_Object> Realize(WeakPtr<ByteStringPool> pPool) const;
 
- public:
-  FX_WCHAR m_Unicodes[256];
+ private:
+  std::array<wchar_t, kEncodingTableSize> unicodes_ = {};
 };
 
 #endif  // CORE_FPDFAPI_FONT_CPDF_FONTENCODING_H_

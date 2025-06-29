@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,28 +7,34 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_TEXTOBJECT_H_
 #define CORE_FPDFAPI_PAGE_CPDF_TEXTOBJECT_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <memory>
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_pageobject.h"
+#include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
 
-class CPDF_TextObjectItem {
+class CPDF_TextObject final : public CPDF_PageObject {
  public:
-  CPDF_TextObjectItem();
-  ~CPDF_TextObjectItem();
+  struct Item {
+    Item();
+    Item(const Item& that);
+    ~Item();
 
-  uint32_t m_CharCode;
-  CFX_PointF m_Origin;
-};
+    uint32_t char_code_ = 0;
+    CFX_PointF origin_;
+  };
 
-class CPDF_TextObject : public CPDF_PageObject {
- public:
+  explicit CPDF_TextObject(int32_t content_stream);
   CPDF_TextObject();
   ~CPDF_TextObject() override;
 
-  // CPDF_PageObject
+  // CPDF_PageObject:
   Type GetType() const override;
   void Transform(const CFX_Matrix& matrix) override;
   bool IsText() const override;
@@ -36,37 +42,46 @@ class CPDF_TextObject : public CPDF_PageObject {
   const CPDF_TextObject* AsText() const override;
 
   std::unique_ptr<CPDF_TextObject> Clone() const;
-  int CountItems() const;
-  void GetItemInfo(int index, CPDF_TextObjectItem* pInfo) const;
-  int CountChars() const;
-  void GetCharInfo(int index, uint32_t* charcode, FX_FLOAT* kerning) const;
-  void GetCharInfo(int index, CPDF_TextObjectItem* pInfo) const;
-  FX_FLOAT GetCharWidth(uint32_t charcode) const;
-  CFX_PointF GetPos() const { return m_Pos; }
+
+  size_t CountItems() const;
+  Item GetItemInfo(size_t index) const;
+
+  size_t CountChars() const;
+  uint32_t GetCharCode(size_t index) const;
+  Item GetCharInfo(size_t index) const;
+  float GetCharWidth(uint32_t charcode) const;
+  int CountWords() const;
+  WideString GetWordString(int nWordIndex) const;
+
+  CFX_PointF GetPos() const { return pos_; }
   CFX_Matrix GetTextMatrix() const;
-  CPDF_Font* GetFont() const;
-  FX_FLOAT GetFontSize() const;
 
-  void SetText(const CFX_ByteString& text);
-  void SetPosition(FX_FLOAT x, FX_FLOAT y);
+  RetainPtr<CPDF_Font> GetFont() const;
+  float GetFontSize() const;
 
-  void RecalcPositionData();
+  TextRenderingMode GetTextRenderMode() const;
+  void SetTextRenderMode(TextRenderingMode mode);
+
+  void SetText(const ByteString& str);
+  void SetPosition(const CFX_PointF& pos) { pos_ = pos; }
+
+  const std::vector<uint32_t>& GetCharCodes() const { return char_codes_; }
+  const std::vector<float>& GetCharPositions() const { return char_pos_; }
+
+  // Caller is expected to call SetDirty(true) when done changing the object.
+  void SetTextMatrix(const CFX_Matrix& matrix);
+
+  void SetSegments(pdfium::span<const ByteString> strings,
+                   pdfium::span<const float> kernings);
+
+  CFX_PointF CalcPositionData(float horz_scale);
 
  private:
-  friend class CPDF_RenderStatus;
-  friend class CPDF_StreamContentParser;
-  friend class CPDF_TextRenderer;
-  friend class CPDF_PageContentGenerator;
+  float CalcPositionDataInternal(const RetainPtr<CPDF_Font>& font);
 
-  void SetSegments(const CFX_ByteString* pStrs,
-                   const FX_FLOAT* pKerning,
-                   int nSegs);
-
-  CFX_PointF CalcPositionData(FX_FLOAT horz_scale);
-
-  CFX_PointF m_Pos;
-  std::vector<uint32_t> m_CharCodes;
-  std::vector<FX_FLOAT> m_CharPos;
+  CFX_PointF pos_;
+  std::vector<uint32_t> char_codes_;
+  std::vector<float> char_pos_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_TEXTOBJECT_H_

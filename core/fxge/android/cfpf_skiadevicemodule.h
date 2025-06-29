@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,20 @@
 #ifndef CORE_FXGE_ANDROID_CFPF_SKIADEVICEMODULE_H_
 #define CORE_FXGE_ANDROID_CFPF_SKIADEVICEMODULE_H_
 
+#include <memory>
+
 class CFPF_SkiaFontMgr;
 
 class CFPF_SkiaDeviceModule {
  public:
-  CFPF_SkiaDeviceModule() : m_pFontMgr(nullptr) {}
+  CFPF_SkiaDeviceModule();
   ~CFPF_SkiaDeviceModule();
 
   void Destroy();
   CFPF_SkiaFontMgr* GetFontMgr();
 
  protected:
-  CFPF_SkiaFontMgr* m_pFontMgr;
+  std::unique_ptr<CFPF_SkiaFontMgr> font_mgr_;
 };
 
 CFPF_SkiaDeviceModule* CFPF_GetSkiaDeviceModule();

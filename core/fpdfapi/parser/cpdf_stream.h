@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,78 +7,110 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_STREAM_H_
 #define CORE_FPDFAPI_PARSER_CPDF_STREAM_H_
 
+#include <stdint.h>
+
 #include <memory>
 #include <set>
+#include <variant>
 
-#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/data_vector.h"
+#include "core/fxcrt/fx_string_wrappers.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CPDF_Stream : public CPDF_Object {
+class IFX_SeekableReadStream;
+
+class CPDF_Stream final : public CPDF_Object {
  public:
-  CPDF_Stream();
+  static constexpr int kFileBufSize = 512;
 
-  // Takes ownership of |pData|.
-  CPDF_Stream(std::unique_ptr<uint8_t, FxFreeDeleter> pData,
-              uint32_t size,
-              std::unique_ptr<CPDF_Dictionary> pDict);
-
-  ~CPDF_Stream() override;
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   // CPDF_Object:
   Type GetType() const override;
-  std::unique_ptr<CPDF_Object> Clone() const override;
-  CPDF_Dictionary* GetDict() const override;
-  CFX_WideString GetUnicodeText() const override;
-  bool IsStream() const override;
-  CPDF_Stream* AsStream() override;
-  const CPDF_Stream* AsStream() const override;
+  RetainPtr<CPDF_Object> Clone() const override;
+  WideString GetUnicodeText() const override;
+  CPDF_Stream* AsMutableStream() override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
 
-  uint32_t GetRawSize() const { return m_dwSize; }
-  uint8_t* GetRawData() const { return m_pDataBuf.get(); }
+  size_t GetRawSize() const;
+  // Can only be called when stream is memory-based.
+  // This is meant to be used by CPDF_StreamAcc only.
+  // Other callers should use CPDF_StreamAcc to access data in all cases.
+  pdfium::span<const uint8_t> GetInMemoryRawData() const;
 
-  // Does not takes onwership of |pData|, copies into internally-owned buffer.
-  void SetData(const uint8_t* pData, uint32_t size);
+  // Copies span or stream into internally-owned buffer.
+  void SetData(pdfium::span<const uint8_t> pData);
+  void SetDataFromStringstream(fxcrt::ostringstream* stream);
 
-  void InitStream(const uint8_t* pData,
-                  uint32_t size,
-                  std::unique_ptr<CPDF_Dictionary> pDict);
-  void InitStreamFromFile(const CFX_RetainPtr<IFX_SeekableReadStream>& pFile,
-                          std::unique_ptr<CPDF_Dictionary> pDict);
+  void TakeData(DataVector<uint8_t> data);
 
-  bool ReadRawData(FX_FILESIZE start_pos,
-                   uint8_t* pBuf,
-                   uint32_t buf_size) const;
+  // Set data and remove "Filter" and "DecodeParms" fields from stream
+  // dictionary. Copies span or stream into internally-owned buffer.
+  void SetDataAndRemoveFilter(pdfium::span<const uint8_t> pData);
+  void SetDataFromStringstreamAndRemoveFilter(fxcrt::ostringstream* stream);
 
-  bool IsMemoryBased() const { return m_bMemoryBased; }
+  void InitStreamFromFile(RetainPtr<IFX_SeekableReadStream> file);
+
+  // Can only be called when a stream is not memory-based.
+  DataVector<uint8_t> ReadAllRawData() const;
+
+  bool IsFileBased() const {
+    return std::holds_alternative<RetainPtr<IFX_SeekableReadStream>>(data_);
+  }
+  bool IsMemoryBased() const {
+    return std::holds_alternative<DataVector<uint8_t>>(data_);
+  }
   bool HasFilter() const;
 
- protected:
-  std::unique_ptr<CPDF_Object> CloneNonCyclic(
+ private:
+  friend class CPDF_Dictionary;
+
+  // Initializes with empty data and /Length set to 0 in `dict`.
+  // `dict` must be non-null and be a direct object.
+  explicit CPDF_Stream(RetainPtr<CPDF_Dictionary> dict);
+
+  // Copies `span` and `stream`, respectively. Creates a new dictionary with the
+  // /Length set.
+  explicit CPDF_Stream(pdfium::span<const uint8_t> span);
+  explicit CPDF_Stream(fxcrt::ostringstream* stream);
+
+  // Reads data from `file`. `dict` will have its /Length set based on `file`.
+  // `dict` must be non-null and be a direct object.
+  CPDF_Stream(RetainPtr<IFX_SeekableReadStream> file,
+              RetainPtr<CPDF_Dictionary> dict);
+
+  // Takes `data`.
+  // `dict` must be non-null and be a direct object.
+  CPDF_Stream(DataVector<uint8_t> data, RetainPtr<CPDF_Dictionary> dict);
+  ~CPDF_Stream() override;
+
+  const CPDF_Dictionary* GetDictInternal() const override;
+  RetainPtr<CPDF_Object> CloneNonCyclic(
       bool bDirect,
       std::set<const CPDF_Object*>* pVisited) const override;
 
-  bool m_bMemoryBased = true;
-  uint32_t m_dwSize = 0;
-  std::unique_ptr<CPDF_Dictionary> m_pDict;
-  std::unique_ptr<uint8_t, FxFreeDeleter> m_pDataBuf;
-  CFX_RetainPtr<IFX_SeekableReadStream> m_pFile;
+  void SetLengthInDict(int length);
+
+  std::variant<RetainPtr<IFX_SeekableReadStream>, DataVector<uint8_t>> data_;
+  RetainPtr<CPDF_Dictionary> dict_;
 };
 
 inline CPDF_Stream* ToStream(CPDF_Object* obj) {
-  return obj ? obj->AsStream() : nullptr;
+  return obj ? obj->AsMutableStream() : nullptr;
 }
 
 inline const CPDF_Stream* ToStream(const CPDF_Object* obj) {
   return obj ? obj->AsStream() : nullptr;
 }
 
-inline std::unique_ptr<CPDF_Stream> ToStream(std::unique_ptr<CPDF_Object> obj) {
-  CPDF_Stream* pStream = ToStream(obj.get());
-  if (!pStream)
-    return nullptr;
-  obj.release();
-  return std::unique_ptr<CPDF_Stream>(pStream);
+inline RetainPtr<CPDF_Stream> ToStream(RetainPtr<CPDF_Object> obj) {
+  return RetainPtr<CPDF_Stream>(ToStream(obj.Get()));
+}
+
+inline RetainPtr<const CPDF_Stream> ToStream(RetainPtr<const CPDF_Object> obj) {
+  return RetainPtr<const CPDF_Stream>(ToStream(obj.Get()));
 }
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_STREAM_H_

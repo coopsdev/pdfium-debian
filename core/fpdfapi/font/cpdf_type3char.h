@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,28 +8,46 @@
 #define CORE_FPDFAPI_FONT_CPDF_TYPE3CHAR_H_
 
 #include <memory>
+#include <optional>
+#include <utility>
 
+#include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/span.h"
 
 class CFX_DIBitmap;
-class CPDF_Form;
-class CPDF_RenderContext;
 
 class CPDF_Type3Char {
  public:
-  // Takes ownership of |pForm|.
-  explicit CPDF_Type3Char(CPDF_Form* pForm);
+  CPDF_Type3Char();
   ~CPDF_Type3Char();
 
-  bool LoadBitmap(CPDF_RenderContext* pContext);
+  static float TextUnitToGlyphUnit(float fTextUnit);
+  static void TextUnitRectToGlyphUnitRect(CFX_FloatRect* pRect);
 
-  std::unique_ptr<CPDF_Form> m_pForm;
-  std::unique_ptr<CFX_DIBitmap> m_pBitmap;
-  bool m_bColored;
-  int m_Width;
-  CFX_Matrix m_ImageMatrix;
-  FX_RECT m_BBox;
+  bool LoadBitmapFromSoleImageOfForm();
+  void InitializeFromStreamData(bool bColored, pdfium::span<const float> pData);
+  void Transform(CPDF_Font::FormIface* pForm, const CFX_Matrix& matrix);
+  void WillBeDestroyed();
+
+  RetainPtr<CFX_DIBitmap> GetBitmap();
+
+  bool colored() const { return colored_; }
+  int width() const { return width_; }
+  const CFX_Matrix& matrix() const { return image_matrix_; }
+  const FX_RECT& bbox() const { return bbox_; }
+
+  const CPDF_Font::FormIface* form() const { return form_.get(); }
+  void SetForm(std::unique_ptr<CPDF_Font::FormIface> pForm);
+
+ private:
+  std::unique_ptr<CPDF_Font::FormIface> form_;
+  RetainPtr<CFX_DIBitmap> bitmap_;
+  bool colored_ = false;
+  int width_ = 0;
+  CFX_Matrix image_matrix_;
+  FX_RECT bbox_;
 };
 
 #endif  // CORE_FPDFAPI_FONT_CPDF_TYPE3CHAR_H_

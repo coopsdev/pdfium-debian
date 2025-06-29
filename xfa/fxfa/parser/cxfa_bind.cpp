@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,48 @@
 
 #include "xfa/fxfa/parser/cxfa_bind.h"
 
-#include "xfa/fxfa/parser/xfa_object.h"
+#include "fxjs/xfa/cjx_node.h"
+#include "fxjs/xfa/cjx_object.h"
+#include "xfa/fxfa/parser/cxfa_document.h"
+#include "xfa/fxfa/parser/cxfa_picture.h"
 
-CXFA_Bind::CXFA_Bind(CXFA_Node* pNode) : CXFA_Data(pNode) {}
+namespace {
 
-void CXFA_Bind::GetPicture(CFX_WideString& wsPicture) {
-  if (CXFA_Node* pPicture = m_pNode->GetChild(0, XFA_Element::Picture))
-    pPicture->TryContent(wsPicture);
+const CXFA_Node::PropertyData kBindPropertyData[] = {
+    {XFA_Element::Picture, 1, {}},
+};
+
+const CXFA_Node::AttributeData kBindAttributeData[] = {
+    {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Ref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::ContentType, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::TransferEncoding, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::None},
+    {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Match, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Once},
+};
+
+}  // namespace
+
+CXFA_Bind::CXFA_Bind(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(doc,
+                packet,
+                {XFA_XDPPACKET::kSourceSet, XFA_XDPPACKET::kTemplate,
+                 XFA_XDPPACKET::kForm},
+                XFA_ObjectType::Node,
+                XFA_Element::Bind,
+                kBindPropertyData,
+                kBindAttributeData,
+                cppgc::MakeGarbageCollected<CJX_Node>(
+                    doc->GetHeap()->GetAllocationHandle(),
+                    this)) {}
+
+CXFA_Bind::~CXFA_Bind() = default;
+
+WideString CXFA_Bind::GetPicture() const {
+  const auto* pPicture = GetChild<CXFA_Picture>(0, XFA_Element::Picture, false);
+  return pPicture ? pPicture->JSObject()->GetContent(false) : WideString();
 }

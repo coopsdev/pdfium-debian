@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,11 @@
 
 #include "xfa/fwl/cfwl_messagekillfocus.h"
 
-#include <memory>
+namespace pdfium {
 
-#include "third_party/base/ptr_util.h"
+CFWL_MessageKillFocus::CFWL_MessageKillFocus(CFWL_Widget* pDstTarget)
+    : CFWL_Message(CFWL_Message::Type::kKillFocus, pDstTarget) {}
 
-CFWL_MessageKillFocus::CFWL_MessageKillFocus(CFWL_Widget* pSrcTarget)
-    : CFWL_MessageKillFocus(pSrcTarget, nullptr) {}
+CFWL_MessageKillFocus::~CFWL_MessageKillFocus() = default;
 
-CFWL_MessageKillFocus::CFWL_MessageKillFocus(CFWL_Widget* pSrcTarget,
-                                             CFWL_Widget* pDstTarget)
-    : CFWL_Message(CFWL_Message::Type::KillFocus, pSrcTarget, pDstTarget) {}
-
-CFWL_MessageKillFocus::~CFWL_MessageKillFocus() {}
-
-std::unique_ptr<CFWL_Message> CFWL_MessageKillFocus::Clone() {
-  return pdfium::MakeUnique<CFWL_MessageKillFocus>(*this);
-}
+}  // namespace pdfium

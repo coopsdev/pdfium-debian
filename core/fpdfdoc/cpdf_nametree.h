@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,12 @@
 #ifndef CORE_FPDFDOC_CPDF_NAMETREE_H_
 #define CORE_FPDFDOC_CPDF_NAMETREE_H_
 
+#include <stddef.h>
+
+#include <memory>
+
 #include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Array;
 class CPDF_Dictionary;
@@ -16,19 +21,42 @@ class CPDF_Object;
 
 class CPDF_NameTree {
  public:
-  explicit CPDF_NameTree(CPDF_Dictionary* pRoot) : m_pRoot(pRoot) {}
-  CPDF_NameTree(CPDF_Document* pDoc, const CFX_ByteString& category);
+  CPDF_NameTree(const CPDF_NameTree&) = delete;
+  CPDF_NameTree& operator=(const CPDF_NameTree&) = delete;
+  ~CPDF_NameTree();
 
-  CPDF_Object* LookupValue(int nIndex, CFX_ByteString& csName) const;
-  CPDF_Object* LookupValue(const CFX_ByteString& csName) const;
-  CPDF_Array* LookupNamedDest(CPDF_Document* pDoc, const CFX_ByteString& sName);
+  static std::unique_ptr<CPDF_NameTree> Create(CPDF_Document* pDoc,
+                                               ByteStringView category);
 
-  int GetIndex(const CFX_ByteString& csName) const;
+  // If necessary, create missing Names dictionary in |pDoc|, and/or missing
+  // Names array in the dictionary that corresponds to |category|, if necessary.
+  // Returns nullptr on failure.
+  static std::unique_ptr<CPDF_NameTree> CreateWithRootNameArray(
+      CPDF_Document* pDoc,
+      ByteStringView category);
+
+  static std::unique_ptr<CPDF_NameTree> CreateForTesting(
+      CPDF_Dictionary* pRoot);
+
+  static RetainPtr<const CPDF_Array> LookupNamedDest(CPDF_Document* doc,
+                                                     const ByteString& name);
+
+  bool AddValueAndName(RetainPtr<CPDF_Object> pObj, const WideString& name);
+  bool DeleteValueAndName(size_t nIndex);
+
+  RetainPtr<CPDF_Object> LookupValueAndName(size_t nIndex,
+                                            WideString* csName) const;
+  RetainPtr<const CPDF_Object> LookupValue(const WideString& csName) const;
+
   size_t GetCount() const;
-  CPDF_Dictionary* GetRoot() const { return m_pRoot; }
+  CPDF_Dictionary* GetRootForTesting() const { return root_.Get(); }
 
  private:
-  CPDF_Dictionary* m_pRoot;
+  explicit CPDF_NameTree(RetainPtr<CPDF_Dictionary> pRoot);
+
+  RetainPtr<const CPDF_Array> LookupNewStyleNamedDest(const ByteString& name);
+
+  RetainPtr<CPDF_Dictionary> const root_;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_NAMETREE_H_

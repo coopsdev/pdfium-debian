@@ -22,6 +22,8 @@
 #include "agg_basics.h"
 #include "agg_array.h"
 #include "agg_math.h"
+namespace pdfium
+{
 namespace agg
 {
 template<class T, unsigned S = 6>
@@ -31,7 +33,7 @@ public:
     typedef pod_deque<T, S> base_type;
     void add(const T& val);
     void modify_last(const T& val);
-    void close(bool remove_flag);
+    void close(bool closed);
 };
 template<class T, unsigned S>
 void vertex_sequence<T, S>::add(const T& val)
@@ -69,13 +71,13 @@ void vertex_sequence<T, S>::close(bool closed)
         }
     }
 }
-const FX_FLOAT vertex_dist_epsilon = 1e-14f;
+const float vertex_dist_epsilon = 1e-14f;
 struct vertex_dist  {
-    FX_FLOAT   x;
-    FX_FLOAT   y;
-    FX_FLOAT   dist;
+    float   x;
+    float   y;
+    float   dist;
     vertex_dist() {}
-    vertex_dist(FX_FLOAT x_, FX_FLOAT y_) :
+    vertex_dist(float x_, float y_) :
         x(x_),
         y(y_),
         dist(0)
@@ -90,11 +92,12 @@ struct vertex_dist  {
 struct vertex_dist_cmd : public vertex_dist {
     unsigned cmd;
     vertex_dist_cmd() {}
-    vertex_dist_cmd(FX_FLOAT x_, FX_FLOAT y_, unsigned cmd_) :
+    vertex_dist_cmd(float x_, float y_, unsigned cmd_) :
         vertex_dist(x_, y_),
         cmd(cmd_)
     {
     }
 };
 }
+}  // namespace pdfium
 #endif

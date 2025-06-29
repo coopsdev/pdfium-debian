@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,14 @@
 
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 
-CPDF_PageObject::CPDF_PageObject() {}
+#include <utility>
 
-CPDF_PageObject::~CPDF_PageObject() {}
+#include "core/fxcrt/fx_coordinates.h"
+
+CPDF_PageObject::CPDF_PageObject(int32_t content_stream)
+    : content_stream_(content_stream) {}
+
+CPDF_PageObject::~CPDF_PageObject() = default;
 
 bool CPDF_PageObject::IsText() const {
   return false;
@@ -70,30 +75,45 @@ const CPDF_FormObject* CPDF_PageObject::AsForm() const {
   return nullptr;
 }
 
+pdfium::span<const ByteString> CPDF_PageObject::GetGraphicsResourceNames()
+    const {
+  return general_state().GetGraphicsResourceNames();
+}
+
+void CPDF_PageObject::SetDefaultStates() {
+  graphic_states_.SetDefaultStates();
+}
+
 void CPDF_PageObject::CopyData(const CPDF_PageObject* pSrc) {
-  CopyStates(*pSrc);
-  m_Left = pSrc->m_Left;
-  m_Right = pSrc->m_Right;
-  m_Top = pSrc->m_Top;
-  m_Bottom = pSrc->m_Bottom;
+  graphic_states_ = pSrc->graphic_states_;
+  rect_ = pSrc->rect_;
+  dirty_ = true;
 }
 
-void CPDF_PageObject::TransformClipPath(CFX_Matrix& matrix) {
-  if (!m_ClipPath)
-    return;
-  m_ClipPath.Transform(matrix);
+void CPDF_PageObject::InitializeOriginalMatrix(const CFX_Matrix& matrix) {
+  original_matrix_ = matrix;
 }
 
-void CPDF_PageObject::TransformGeneralState(CFX_Matrix& matrix) {
-  if (!m_GeneralState)
-    return;
-  m_GeneralState.GetMutableMatrix()->Concat(matrix);
-}
-
-FX_RECT CPDF_PageObject::GetBBox(const CFX_Matrix* pMatrix) const {
-  CFX_FloatRect rect(m_Left, m_Bottom, m_Right, m_Top);
-  if (pMatrix) {
-    pMatrix->TransformRect(rect);
+void CPDF_PageObject::SetIsActive(bool value) {
+  if (is_active_ != value) {
+    is_active_ = value;
+    dirty_ = true;
   }
-  return rect.GetOuterRect();
+}
+
+void CPDF_PageObject::TransformClipPath(const CFX_Matrix& matrix) {
+  CPDF_ClipPath& clip_path = mutable_clip_path();
+  if (!clip_path.HasRef()) {
+    return;
+  }
+  clip_path.Transform(matrix);
+  SetDirty(true);
+}
+
+FX_RECT CPDF_PageObject::GetBBox() const {
+  return GetRect().GetOuterRect();
+}
+
+FX_RECT CPDF_PageObject::GetTransformedBBox(const CFX_Matrix& matrix) const {
+  return matrix.TransformRect(GetRect()).GetOuterRect();
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,42 +7,65 @@
 #ifndef XFA_FXFA_PARSER_XFA_BASIC_DATA_H_
 #define XFA_FXFA_PARSER_XFA_BASIC_DATA_H_
 
+#include <stddef.h>
+
+#include <optional>
+
+#include "core/fxcrt/widestring.h"
+#include "fxjs/xfa/cjx_object.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
-extern const XFA_PACKETINFO g_XFAPacketData[];
-extern const int32_t g_iXFAPacketCount;
+using XFA_ATTRIBUTE_CALLBACK = void (*)(v8::Isolate* pIsolate,
+                                        CJX_Object* pNode,
+                                        v8::Local<v8::Value>* pValue,
+                                        bool bSetting,
+                                        XFA_Attribute eAttribute);
 
-extern const XFA_ATTRIBUTEENUMINFO g_XFAEnumData[];
-extern const int32_t g_iXFAEnumCount;
+enum class XFA_PacketMatch : uint8_t {
+  kCompleteMatch = 1,
+  kPrefixMatch,
+  kNoMatch,
+};
 
-extern const XFA_ATTRIBUTEINFO g_XFAAttributeData[];
-extern const int32_t g_iXFAAttributeCount;
+enum class XFA_PacketSupport : uint8_t {
+  kSupportOne = 1,
+  kSupportMany,
+};
 
-extern const XFA_NOTSUREATTRIBUTE g_XFANotsureAttributes[];
-extern const int32_t g_iXFANotsureCount;
+struct XFA_PACKETINFO {
+  XFA_PacketType packet_type;
+  XFA_PacketMatch match;
+  XFA_PacketSupport support;
+  const char* name;
+  const char* uri;
+};
 
-extern const XFA_ELEMENTINFO g_XFAElementData[];
-extern const int32_t g_iXFAElementCount;
+struct XFA_ATTRIBUTEINFO {
+  XFA_Attribute attribute;
+  XFA_ScriptType eValueType;
+};
 
-extern const XFA_ELEMENTHIERARCHY g_XFAElementChildrenIndex[];
-extern const uint16_t g_XFAElementChildrenData[];
+struct XFA_SCRIPTATTRIBUTEINFO {
+  XFA_Attribute attribute;
+  XFA_ScriptType eValueType;
+  XFA_ATTRIBUTE_CALLBACK callback = nullptr;
+};
 
-extern const XFA_ELEMENTHIERARCHY g_XFAElementAttributeIndex[];
-extern const uint8_t g_XFAElementAttributeData[];
+XFA_PACKETINFO XFA_GetPacketByIndex(XFA_PacketType ePacket);
+std::optional<XFA_PACKETINFO> XFA_GetPacketByName(WideStringView wsName);
 
-extern const XFA_ELEMENTHIERARCHY g_XFAElementPropertyIndex[];
-extern const XFA_PROPERTY g_XFAElementPropertyData[];
+ByteStringView XFA_ElementToName(XFA_Element elem);
+XFA_Element XFA_GetElementByName(WideStringView name);
 
-extern const XFA_SCRIPTHIERARCHY g_XFAScriptIndex[];
-extern const int32_t g_iScriptIndexCount;
+ByteStringView XFA_AttributeToName(XFA_Attribute attr);
+std::optional<XFA_ATTRIBUTEINFO> XFA_GetAttributeByName(WideStringView name);
 
-extern const XFA_NOTSUREATTRIBUTE g_XFANotsureAttributes[];
-extern const int32_t g_iXFANotsureCount;
+ByteStringView XFA_AttributeValueToName(XFA_AttributeValue item);
+std::optional<XFA_AttributeValue> XFA_GetAttributeValueByName(
+    WideStringView name);
 
-extern const XFA_METHODINFO g_SomMethodData[];
-extern const int32_t g_iSomMethodCount;
-
-extern const XFA_SCRIPTATTRIBUTEINFO g_SomAttributeData[];
-extern const int32_t g_iSomAttributeCount;
+std::optional<XFA_SCRIPTATTRIBUTEINFO> XFA_GetScriptAttributeByName(
+    XFA_Element eElement,
+    WideStringView wsAttributeName);
 
 #endif  // XFA_FXFA_PARSER_XFA_BASIC_DATA_H_

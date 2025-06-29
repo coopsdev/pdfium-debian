@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,25 @@
 #ifndef XFA_FXFA_PARSER_CXFA_MARGIN_H_
 #define XFA_FXFA_PARSER_CXFA_MARGIN_H_
 
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Margin : public CXFA_Data {
+class CXFA_Margin final : public CXFA_Node {
  public:
-  explicit CXFA_Margin(CXFA_Node* pNode);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_Margin() override;
 
-  bool GetLeftInset(FX_FLOAT& fInset, FX_FLOAT fDefInset = 0) const;
-  bool GetTopInset(FX_FLOAT& fInset, FX_FLOAT fDefInset = 0) const;
-  bool GetRightInset(FX_FLOAT& fInset, FX_FLOAT fDefInset = 0) const;
-  bool GetBottomInset(FX_FLOAT& fInset, FX_FLOAT fDefInset = 0) const;
+  float GetLeftInset() const;
+  float GetTopInset() const;
+  float GetRightInset() const;
+  float GetBottomInset() const;
+
+  std::optional<float> TryLeftInset() const;
+  std::optional<float> TryTopInset() const;
+  std::optional<float> TryRightInset() const;
+  std::optional<float> TryBottomInset() const;
+
+ private:
+  CXFA_Margin(CXFA_Document* doc, XFA_PacketType packet);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_MARGIN_H_

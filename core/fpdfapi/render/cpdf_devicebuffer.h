@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #ifndef CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_
 #define CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_
 
-#include <memory>
-
+#include "build/build_config.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CFX_DIBitmap;
 class CFX_RenderDevice;
@@ -18,24 +19,33 @@ class CPDF_RenderContext;
 
 class CPDF_DeviceBuffer {
  public:
-  CPDF_DeviceBuffer();
+  static CFX_Matrix CalculateMatrix(CFX_RenderDevice* pDevice,
+                                    const FX_RECT& rect,
+                                    int max_dpi,
+                                    bool scale);
+
+  CPDF_DeviceBuffer(CPDF_RenderContext* pContext,
+                    CFX_RenderDevice* pDevice,
+                    const FX_RECT& rect,
+                    const CPDF_PageObject* pObj,
+                    int max_dpi);
   ~CPDF_DeviceBuffer();
-  bool Initialize(CPDF_RenderContext* pContext,
-                  CFX_RenderDevice* pDevice,
-                  FX_RECT* pRect,
-                  const CPDF_PageObject* pObj,
-                  int max_dpi);
+
+  // On success, the returned bitmap will already have its buffer allocated.
+  // On failure, the returned result is null.
+  [[nodiscard]] RetainPtr<CFX_DIBitmap> Initialize();
   void OutputToDevice();
-  CFX_DIBitmap* GetBitmap() const { return m_pBitmap.get(); }
-  const CFX_Matrix* GetMatrix() const { return &m_Matrix; }
+  const CFX_Matrix& GetMatrix() const { return matrix_; }
 
  private:
-  CFX_RenderDevice* m_pDevice;
-  CPDF_RenderContext* m_pContext;
-  FX_RECT m_Rect;
-  const CPDF_PageObject* m_pObject;
-  std::unique_ptr<CFX_DIBitmap> m_pBitmap;
-  CFX_Matrix m_Matrix;
+  UnownedPtr<CFX_RenderDevice> const device_;
+#if BUILDFLAG(IS_WIN)
+  UnownedPtr<CPDF_RenderContext> const context_;
+#endif
+  UnownedPtr<const CPDF_PageObject> const object_;
+  RetainPtr<CFX_DIBitmap> const bitmap_;
+  const FX_RECT rect_;
+  const CFX_Matrix matrix_;
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_

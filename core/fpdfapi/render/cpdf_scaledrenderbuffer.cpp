@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,75 +6,68 @@
 
 #include "core/fpdfapi/render/cpdf_scaledrenderbuffer.h"
 
+#include "build/build_config.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/render/cpdf_devicebuffer.h"
 #include "core/fpdfapi/render/cpdf_rendercontext.h"
-#include "core/fpdfapi/render/cpdf_renderoptions.h"
-#include "core/fxge/cfx_fxgedevice.h"
-#include "core/fxge/cfx_renderdevice.h"
-#include "third_party/base/ptr_util.h"
+#include "core/fxge/cfx_defaultrenderdevice.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
 
-#define _FPDFAPI_IMAGESIZE_LIMIT_ (30 * 1024 * 1024)
+namespace {
 
-CPDF_ScaledRenderBuffer::CPDF_ScaledRenderBuffer() {}
+constexpr size_t kImageSizeLimitBytes = 30 * 1024 * 1024;
 
-CPDF_ScaledRenderBuffer::~CPDF_ScaledRenderBuffer() {}
+}  // namespace
+
+CPDF_ScaledRenderBuffer::CPDF_ScaledRenderBuffer(CFX_RenderDevice* device,
+                                                 const FX_RECT& rect)
+    : device_(device),
+      bitmap_device_(std::make_unique<CFX_DefaultRenderDevice>()),
+      rect_(rect) {}
+
+CPDF_ScaledRenderBuffer::~CPDF_ScaledRenderBuffer() = default;
 
 bool CPDF_ScaledRenderBuffer::Initialize(CPDF_RenderContext* pContext,
-                                         CFX_RenderDevice* pDevice,
-                                         const FX_RECT& pRect,
                                          const CPDF_PageObject* pObj,
-                                         const CPDF_RenderOptions* pOptions,
+                                         const CPDF_RenderOptions& options,
                                          int max_dpi) {
-  m_pDevice = pDevice;
-  if (m_pDevice->GetDeviceCaps(FXDC_RENDER_CAPS) & FXRC_GET_BITS)
-    return true;
-
-  m_pContext = pContext;
-  m_Rect = pRect;
-  m_pObject = pObj;
-  m_Matrix.Translate(-pRect.left, -pRect.top);
-  int horz_size = pDevice->GetDeviceCaps(FXDC_HORZ_SIZE);
-  int vert_size = pDevice->GetDeviceCaps(FXDC_VERT_SIZE);
-  if (horz_size && vert_size && max_dpi) {
-    int dpih =
-        pDevice->GetDeviceCaps(FXDC_PIXEL_WIDTH) * 254 / (horz_size * 10);
-    int dpiv =
-        pDevice->GetDeviceCaps(FXDC_PIXEL_HEIGHT) * 254 / (vert_size * 10);
-    if (dpih > max_dpi)
-      m_Matrix.Scale((FX_FLOAT)(max_dpi) / dpih, 1.0f);
-    if (dpiv > max_dpi)
-      m_Matrix.Scale(1.0f, (FX_FLOAT)(max_dpi) / (FX_FLOAT)dpiv);
-  }
-  m_pBitmapDevice = pdfium::MakeUnique<CFX_FxgeDevice>();
-  FXDIB_Format dibFormat = FXDIB_Rgb;
-  int32_t bpp = 24;
-  if (m_pDevice->GetDeviceCaps(FXDC_RENDER_CAPS) & FXRC_ALPHA_OUTPUT) {
-    dibFormat = FXDIB_Argb;
-    bpp = 32;
-  }
-  while (1) {
-    CFX_FloatRect rect(pRect);
-    m_Matrix.TransformRect(rect);
-    FX_RECT bitmap_rect = rect.GetOuterRect();
-    int32_t iWidth = bitmap_rect.Width();
-    int32_t iHeight = bitmap_rect.Height();
-    int32_t iPitch = (iWidth * bpp + 31) / 32 * 4;
-    if (iWidth * iHeight < 1)
+  matrix_ = CPDF_DeviceBuffer::CalculateMatrix(device_, rect_, max_dpi,
+                                               /*scale=*/true);
+  bool bIsAlpha =
+      !!(device_->GetDeviceCaps(FXDC_RENDER_CAPS) & FXRC_ALPHA_OUTPUT);
+  FXDIB_Format dibFormat = bIsAlpha ? FXDIB_Format::kBgra : FXDIB_Format::kBgr;
+  while (true) {
+    FX_RECT bitmap_rect =
+        matrix_.TransformRect(CFX_FloatRect(rect_)).GetOuterRect();
+    int32_t width = bitmap_rect.Width();
+    int32_t height = bitmap_rect.Height();
+    // Set to 0 to make CalculatePitchAndSize() calculate it.
+    static constexpr uint32_t kNoPitch = 0;
+    std::optional<CFX_DIBitmap::PitchAndSize> pitch_size =
+        CFX_DIBitmap::CalculatePitchAndSize(width, height, dibFormat, kNoPitch);
+    if (!pitch_size.has_value()) {
       return false;
+    }
 
-    if (iPitch * iHeight <= _FPDFAPI_IMAGESIZE_LIMIT_ &&
-        m_pBitmapDevice->Create(iWidth, iHeight, dibFormat, nullptr)) {
+    if (pitch_size.value().size <= kImageSizeLimitBytes &&
+        bitmap_device_->Create(width, height, dibFormat)) {
       break;
     }
-    m_Matrix.Scale(0.5f, 0.5f);
+    matrix_.Scale(0.5f, 0.5f);
   }
-  m_pContext->GetBackground(m_pBitmapDevice->GetBitmap(), m_pObject, pOptions,
-                            &m_Matrix);
+  pContext->GetBackgroundToDevice(bitmap_device_.get(), pObj, &options,
+                                  matrix_);
   return true;
 }
 
+CFX_DefaultRenderDevice* CPDF_ScaledRenderBuffer::GetDevice() {
+  return bitmap_device_.get();
+}
+
 void CPDF_ScaledRenderBuffer::OutputToDevice() {
-  if (m_pBitmapDevice) {
-    m_pDevice->StretchDIBits(m_pBitmapDevice->GetBitmap(), m_Rect.left,
-                             m_Rect.top, m_Rect.Width(), m_Rect.Height());
-  }
+#if defined(PDF_USE_SKIA)
+  bitmap_device_->SyncInternalBitmaps();
+#endif
+  device_->StretchDIBits(bitmap_device_->GetBitmap(), rect_.left, rect_.top,
+                         rect_.Width(), rect_.Height());
 }

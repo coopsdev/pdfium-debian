@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 #ifndef CORE_FXGE_CFX_GRAPHSTATE_H_
 #define CORE_FXGE_CFX_GRAPHSTATE_H_
 
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
-#include "core/fxge/cfx_graphstatedata.h"
+#include <stddef.h>
 
-class CPDF_Array;
+#include <vector>
+
+#include "core/fxcrt/shared_copy_on_write.h"
+#include "core/fxge/cfx_graphstatedata.h"
 
 class CFX_GraphState {
  public:
@@ -20,10 +22,14 @@ class CFX_GraphState {
 
   void Emplace();
 
-  void SetLineDash(CPDF_Array* pArray, FX_FLOAT phase, FX_FLOAT scale);
+  void SetLineDash(std::vector<float> dashes, float phase);
+  void SetLineDashPhase(float phase);
+  std::vector<float> GetLineDashArray() const;
+  size_t GetLineDashSize() const;
+  float GetLineDashPhase() const;
 
-  FX_FLOAT GetLineWidth() const;
-  void SetLineWidth(FX_FLOAT width);
+  float GetLineWidth() const;
+  void SetLineWidth(float width);
 
   CFX_GraphStateData::LineCap GetLineCap() const;
   void SetLineCap(CFX_GraphStateData::LineCap cap);
@@ -31,14 +37,14 @@ class CFX_GraphState {
   CFX_GraphStateData::LineJoin GetLineJoin() const;
   void SetLineJoin(CFX_GraphStateData::LineJoin join);
 
-  FX_FLOAT GetMiterLimit() const;
-  void SetMiterLimit(FX_FLOAT limit);
+  float GetMiterLimit() const;
+  void SetMiterLimit(float limit);
 
   // FIXME(tsepez): remove when all GraphStateData usage gone.
-  const CFX_GraphStateData* GetObject() const { return m_Ref.GetObject(); }
+  const CFX_GraphStateData* GetObject() const { return ref_.GetObject(); }
 
  private:
-  CFX_SharedCopyOnWrite<CFX_GraphStateData> m_Ref;
+  SharedCopyOnWrite<CFX_RetainableGraphStateData> ref_;
 };
 
 #endif  // CORE_FXGE_CFX_GRAPHSTATE_H_

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,36 +7,34 @@
 #ifndef XFA_FXFA_PARSER_CXFA_MEASUREMENT_H_
 #define XFA_FXFA_PARSER_CXFA_MEASUREMENT_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/widestring.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
 class CXFA_Measurement {
  public:
-  explicit CXFA_Measurement(const CFX_WideStringC& wsMeasure);
+  explicit CXFA_Measurement(WideStringView wsMeasure);
   CXFA_Measurement();
-  CXFA_Measurement(FX_FLOAT fValue, XFA_UNIT eUnit);
+  CXFA_Measurement(float fValue, XFA_Unit eUnit);
 
-  void Set(const CFX_WideStringC& wsMeasure);
-  void Set(FX_FLOAT fValue, XFA_UNIT eUnit) {
-    m_fValue = fValue;
-    m_eUnit = eUnit;
+  static XFA_Unit GetUnitFromString(WideStringView wsUnit);
+
+  void Set(float fValue, XFA_Unit eUnit) {
+    value_ = fValue;
+    unit_ = eUnit;
   }
 
-  XFA_UNIT GetUnit(const CFX_WideStringC& wsUnit);
-  XFA_UNIT GetUnit() const { return m_eUnit; }
-  FX_FLOAT GetValue() const { return m_fValue; }
+  XFA_Unit GetUnit() const { return unit_; }
+  float GetValue() const { return value_; }
 
-  bool ToString(CFX_WideString& wsMeasure) const;
-  bool ToUnit(XFA_UNIT eUnit, FX_FLOAT& fValue) const;
-  FX_FLOAT ToUnit(XFA_UNIT eUnit) const {
-    FX_FLOAT f;
-    return ToUnit(eUnit, f) ? f : 0;
-  }
+  WideString ToString() const;
+  float ToUnit(XFA_Unit eUnit) const;
 
  private:
-  FX_FLOAT m_fValue;
-  XFA_UNIT m_eUnit;
+  void SetString(WideStringView wsMeasure);
+  bool ToUnitInternal(XFA_Unit eUnit, float* fValue) const;
+
+  float value_ = 0.0f;
+  XFA_Unit unit_ = XFA_Unit::Percent;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_MEASUREMENT_H_

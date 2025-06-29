@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,34 +7,40 @@
 #ifndef CORE_FPDFAPI_RENDER_CPDF_TYPE3CACHE_H_
 #define CORE_FPDFAPI_RENDER_CPDF_TYPE3CACHE_H_
 
+#include <stdint.h>
+
 #include <map>
+#include <memory>
+#include <tuple>
 
-#include "core/fpdfapi/font/cpdf_type3font.h"
-#include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/observed_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CPDF_Type3Glyphs;
+class CFX_GlyphBitmap;
+class CFX_Matrix;
+class CPDF_Type3Font;
+class CPDF_Type3GlyphMap;
 
-class CPDF_Type3Cache {
+class CPDF_Type3Cache final : public Retainable, public Observable {
  public:
-  explicit CPDF_Type3Cache(CPDF_Type3Font* pFont);
-  ~CPDF_Type3Cache();
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
-  CFX_GlyphBitmap* LoadGlyph(uint32_t charcode,
-                             const CFX_Matrix* pMatrix,
-                             FX_FLOAT retinaScaleX,
-                             FX_FLOAT retinaScaleY);
+  const CFX_GlyphBitmap* LoadGlyph(uint32_t charcode,
+                                   const CFX_Matrix& mtMatrix);
 
  private:
-  CFX_GlyphBitmap* RenderGlyph(CPDF_Type3Glyphs* pSize,
-                               uint32_t charcode,
-                               const CFX_Matrix* pMatrix,
-                               FX_FLOAT retinaScaleX,
-                               FX_FLOAT retinaScaleY);
+  using SizeKey = std::tuple<int, int, int, int>;
 
-  CPDF_Type3Font* const m_pFont;
-  std::map<CFX_ByteString, CPDF_Type3Glyphs*> m_SizeMap;
+  explicit CPDF_Type3Cache(CPDF_Type3Font* font);
+  ~CPDF_Type3Cache() override;
+
+  std::unique_ptr<CFX_GlyphBitmap> RenderGlyph(CPDF_Type3GlyphMap* pSize,
+                                               uint32_t charcode,
+                                               const CFX_Matrix& mtMatrix);
+
+  RetainPtr<CPDF_Type3Font> const font_;
+  std::map<SizeKey, std::unique_ptr<CPDF_Type3GlyphMap>> size_map_;
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_TYPE3CACHE_H_

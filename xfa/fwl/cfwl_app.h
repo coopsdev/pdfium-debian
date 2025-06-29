@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,39 +7,58 @@
 #ifndef XFA_FWL_CFWL_APP_H_
 #define XFA_FWL_CFWL_APP_H_
 
-#include <memory>
+#include "core/fxcrt/cfx_timer.h"
+#include "fxjs/gc/heap.h"
+#include "v8/include/cppgc/garbage-collected.h"
+#include "v8/include/cppgc/member.h"
+#include "v8/include/cppgc/visitor.h"
+#include "xfa/fwl/cfwl_widgetmgr.h"
 
-#include "core/fxcrt/fx_string.h"
+namespace pdfium {
 
 class CFWL_NoteDriver;
-class CFWL_WidgetMgr;
-class CXFA_FFApp;
-class CXFA_FWLAdapterWidgetMgr;
-class CFWL_Widget;
+class IFWL_ThemeProvider;
 
-enum FWL_KeyFlag {
-  FWL_KEYFLAG_Ctrl = 1 << 0,
-  FWL_KEYFLAG_Alt = 1 << 1,
-  FWL_KEYFLAG_Shift = 1 << 2,
-  FWL_KEYFLAG_Command = 1 << 3,
-  FWL_KEYFLAG_LButton = 1 << 4,
-  FWL_KEYFLAG_RButton = 1 << 5,
-  FWL_KEYFLAG_MButton = 1 << 6
-};
-
-class CFWL_App {
+class CFWL_App final : public cppgc::GarbageCollected<CFWL_App> {
  public:
-  explicit CFWL_App(CXFA_FFApp* pAdapter);
+  class AdapterIface : public cppgc::GarbageCollectedMixin {
+   public:
+    virtual ~AdapterIface() = default;
+    virtual CFWL_WidgetMgr::AdapterIface* GetWidgetMgrAdapter() = 0;
+    virtual CFX_Timer::HandlerIface* GetTimerHandler() = 0;
+    virtual IFWL_ThemeProvider* GetThemeProvider() = 0;
+    virtual cppgc::Heap* GetHeap() = 0;
+  };
+
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_App();
 
-  CXFA_FFApp* GetAdapterNative() const { return m_pAdapterNative; }
-  CFWL_WidgetMgr* GetWidgetMgr() const { return m_pWidgetMgr.get(); }
-  CFWL_NoteDriver* GetNoteDriver() const { return m_pNoteDriver.get(); }
+  void Trace(cppgc::Visitor* visitor) const;
+
+  CFWL_WidgetMgr::AdapterIface* GetWidgetMgrAdapter() const {
+    return adapter_->GetWidgetMgrAdapter();
+  }
+  CFX_Timer::HandlerIface* GetTimerHandler() const {
+    return adapter_->GetTimerHandler();
+  }
+  IFWL_ThemeProvider* GetThemeProvider() const {
+    return adapter_->GetThemeProvider();
+  }
+  cppgc::Heap* GetHeap() const { return adapter_->GetHeap(); }
+  CFWL_WidgetMgr* GetWidgetMgr() const { return widget_mgr_; }
+  CFWL_NoteDriver* GetNoteDriver() const { return note_driver_; }
 
  private:
-  CXFA_FFApp* const m_pAdapterNative;
-  std::unique_ptr<CFWL_WidgetMgr> m_pWidgetMgr;
-  std::unique_ptr<CFWL_NoteDriver> m_pNoteDriver;
+  explicit CFWL_App(AdapterIface* pAdapter);
+
+  cppgc::Member<AdapterIface> const adapter_;
+  cppgc::Member<CFWL_WidgetMgr> widget_mgr_;
+  cppgc::Member<CFWL_NoteDriver> note_driver_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_App;
 
 #endif  // XFA_FWL_CFWL_APP_H_

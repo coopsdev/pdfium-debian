@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,19 @@
 #ifndef XFA_FWL_CFWL_MESSAGESETFOCUS_H_
 #define XFA_FWL_CFWL_MESSAGESETFOCUS_H_
 
-#include <memory>
-
 #include "xfa/fwl/cfwl_message.h"
 
-class CFWL_MessageSetFocus : public CFWL_Message {
- public:
-  CFWL_MessageSetFocus(CFWL_Widget* pSrcTarget, CFWL_Widget* pDstTarget);
-  ~CFWL_MessageSetFocus() override;
+namespace pdfium {
 
-  // CFWL_Message
-  std::unique_ptr<CFWL_Message> Clone() override;
+class CFWL_MessageSetFocus final : public CFWL_Message {
+ public:
+  explicit CFWL_MessageSetFocus(CFWL_Widget* pDstTarget);
+  ~CFWL_MessageSetFocus() override;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_MessageSetFocus;
 
 #endif  // XFA_FWL_CFWL_MESSAGESETFOCUS_H_

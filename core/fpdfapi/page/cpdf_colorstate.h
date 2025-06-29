@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,15 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_COLORSTATE_H_
 #define CORE_FPDFAPI_PAGE_CPDF_COLORSTATE_H_
 
-#include "core/fpdfapi/page/cpdf_color.h"
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
-#include "core/fxcrt/fx_basic.h"
-#include "core/fxcrt/fx_system.h"
+#include <optional>
+#include <vector>
 
-class CPDF_Color;
+#include "core/fpdfapi/page/cpdf_color.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/shared_copy_on_write.h"
+#include "core/fxcrt/span.h"
+#include "core/fxge/dib/fx_dib.h"
+
 class CPDF_ColorSpace;
 class CPDF_Pattern;
 
@@ -25,11 +28,11 @@ class CPDF_ColorState {
   void Emplace();
   void SetDefault();
 
-  uint32_t GetFillRGB() const;
-  void SetFillRGB(uint32_t rgb);
+  FX_COLORREF GetFillColorRef() const;
+  void SetFillColorRef(FX_COLORREF colorref);
 
-  uint32_t GetStrokeRGB() const;
-  void SetStrokeRGB(uint32_t rgb);
+  FX_COLORREF GetStrokeColorRef() const;
+  void SetStrokeColorRef(FX_COLORREF colorref);
 
   const CPDF_Color* GetFillColor() const;
   CPDF_Color* GetMutableFillColor();
@@ -39,39 +42,45 @@ class CPDF_ColorState {
   CPDF_Color* GetMutableStrokeColor();
   bool HasStrokeColor() const;
 
-  void SetFillColor(CPDF_ColorSpace* pCS, FX_FLOAT* pValue, uint32_t nValues);
-  void SetStrokeColor(CPDF_ColorSpace* pCS, FX_FLOAT* pValue, uint32_t nValues);
-  void SetFillPattern(CPDF_Pattern* pattern,
-                      FX_FLOAT* pValue,
-                      uint32_t nValues);
-  void SetStrokePattern(CPDF_Pattern* pattern,
-                        FX_FLOAT* pValue,
-                        uint32_t nValues);
+  void SetFillColor(RetainPtr<CPDF_ColorSpace> colorspace,
+                    std::vector<float> values);
+  void SetStrokeColor(RetainPtr<CPDF_ColorSpace> colorspace,
+                      std::vector<float> values);
+  void SetFillPattern(RetainPtr<CPDF_Pattern> pattern,
+                      pdfium::span<float> values);
+  void SetStrokePattern(RetainPtr<CPDF_Pattern> pattern,
+                        pdfium::span<float> values);
 
-  explicit operator bool() const { return !!m_Ref; }
+  bool HasRef() const { return !!ref_; }
 
  private:
-  class ColorData {
+  class ColorData final : public Retainable {
    public:
-    ColorData();
-    ColorData(const ColorData& src);
-    ~ColorData();
+    CONSTRUCT_VIA_MAKE_RETAIN;
+
+    RetainPtr<ColorData> Clone() const;
 
     void SetDefault();
 
-    uint32_t m_FillRGB;
-    uint32_t m_StrokeRGB;
-    CPDF_Color m_FillColor;
-    CPDF_Color m_StrokeColor;
+    FX_COLORREF fill_color_ref_ = 0;
+    FX_COLORREF stroke_color_ref_ = 0;
+    CPDF_Color fill_color_;
+    CPDF_Color stroke_color_;
+
+   private:
+    ColorData();
+    ColorData(const ColorData& src);
+    ~ColorData() override;
   };
 
-  void SetColor(CPDF_Color& color,
-                uint32_t& rgb,
-                CPDF_ColorSpace* pCS,
-                FX_FLOAT* pValue,
-                uint32_t nValues);
+  std::optional<FX_COLORREF> SetColor(RetainPtr<CPDF_ColorSpace> colorspace,
+                                      std::vector<float> values,
+                                      CPDF_Color& color);
+  FX_COLORREF SetPattern(RetainPtr<CPDF_Pattern> pattern,
+                         pdfium::span<float> values,
+                         CPDF_Color& color);
 
-  CFX_SharedCopyOnWrite<ColorData> m_Ref;
+  SharedCopyOnWrite<ColorData> ref_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_COLORSTATE_H_

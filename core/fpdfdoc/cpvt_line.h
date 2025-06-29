@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "core/fpdfdoc/cpvt_wordplace.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_system.h"
 
 class CPVT_Line {
  public:
@@ -18,9 +17,9 @@ class CPVT_Line {
   CPVT_WordPlace lineplace;
   CPVT_WordPlace lineEnd;
   CFX_PointF ptLine;
-  FX_FLOAT fLineWidth;
-  FX_FLOAT fLineAscent;
-  FX_FLOAT fLineDescent;
+  float fLineWidth;
+  float fLineAscent;
+  float fLineDescent;
 };
 
 inline CPVT_Line::CPVT_Line()

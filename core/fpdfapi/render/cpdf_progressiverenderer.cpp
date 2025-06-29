@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,109 +6,137 @@
 
 #include "core/fpdfapi/render/cpdf_progressiverenderer.h"
 
+#include "build/build_config.h"
+#include "core/fpdfapi/page/cpdf_image.h"
+#include "core/fpdfapi/page/cpdf_imageobject.h"
+#include "core/fpdfapi/page/cpdf_pageimagecache.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/page/cpdf_pageobjectholder.h"
-#include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfapi/render/cpdf_renderoptions.h"
 #include "core/fpdfapi/render/cpdf_renderstatus.h"
+#include "core/fxcrt/check.h"
+#include "core/fxcrt/pauseindicator_iface.h"
 #include "core/fxge/cfx_renderdevice.h"
-#include "third_party/base/ptr_util.h"
 
 CPDF_ProgressiveRenderer::CPDF_ProgressiveRenderer(
     CPDF_RenderContext* pContext,
     CFX_RenderDevice* pDevice,
     const CPDF_RenderOptions* pOptions)
-    : m_Status(Ready),
-      m_pContext(pContext),
-      m_pDevice(pDevice),
-      m_pOptions(pOptions),
-      m_LayerIndex(0),
-      m_pCurrentLayer(nullptr) {}
-
-CPDF_ProgressiveRenderer::~CPDF_ProgressiveRenderer() {
-  if (m_pRenderStatus)
-    m_pDevice->RestoreState(false);
+    : context_(pContext), device_(pDevice), options_(pOptions) {
+  CHECK(context_);
+  CHECK(device_);
 }
 
-void CPDF_ProgressiveRenderer::Start(IFX_Pause* pPause) {
-  if (!m_pContext || !m_pDevice || m_Status != Ready) {
-    m_Status = Failed;
+CPDF_ProgressiveRenderer::~CPDF_ProgressiveRenderer() {
+  if (render_status_) {
+    render_status_.reset();  // Release first.
+    device_->RestoreState(false);
+  }
+}
+
+void CPDF_ProgressiveRenderer::Start(PauseIndicatorIface* pPause) {
+  if (status_ != kReady) {
+    status_ = kFailed;
     return;
   }
-  m_Status = ToBeContinued;
+  status_ = kToBeContinued;
   Continue(pPause);
 }
 
-void CPDF_ProgressiveRenderer::Continue(IFX_Pause* pPause) {
-  while (m_Status == ToBeContinued) {
-    if (!m_pCurrentLayer) {
-      if (m_LayerIndex >= m_pContext->CountLayers()) {
-        m_Status = Done;
+void CPDF_ProgressiveRenderer::Continue(PauseIndicatorIface* pPause) {
+  while (status_ == kToBeContinued) {
+    if (!current_layer_) {
+      if (layer_index_ >= context_->CountLayers()) {
+        status_ = kDone;
         return;
       }
-      m_pCurrentLayer = m_pContext->GetLayer(m_LayerIndex);
-      m_LastObjectRendered =
-          m_pCurrentLayer->m_pObjectHolder->GetPageObjectList()->end();
-      m_pRenderStatus = pdfium::MakeUnique<CPDF_RenderStatus>();
-      m_pRenderStatus->Initialize(
-          m_pContext, m_pDevice, nullptr, nullptr, nullptr, nullptr, m_pOptions,
-          m_pCurrentLayer->m_pObjectHolder->m_Transparency, false, nullptr);
-      m_pDevice->SaveState();
-      m_ClipRect = CFX_FloatRect(m_pDevice->GetClipBox());
-      CFX_Matrix device2object;
-      device2object.SetReverse(m_pCurrentLayer->m_Matrix);
-      device2object.TransformRect(m_ClipRect);
+      current_layer_ = context_->GetLayer(layer_index_);
+      last_object_rendered_ = current_layer_->GetObjectHolder()->end();
+      render_status_ = std::make_unique<CPDF_RenderStatus>(context_, device_);
+      if (options_) {
+        render_status_->SetOptions(*options_);
+      }
+      render_status_->SetTransparency(
+          current_layer_->GetObjectHolder()->GetTransparency());
+      render_status_->Initialize(nullptr, nullptr);
+      device_->SaveState();
+      clip_rect_ = current_layer_->GetMatrix().GetInverse().TransformRect(
+          CFX_FloatRect(device_->GetClipBox()));
     }
-    CPDF_PageObjectList::iterator iter;
-    CPDF_PageObjectList::iterator iterEnd =
-        m_pCurrentLayer->m_pObjectHolder->GetPageObjectList()->end();
-    if (m_LastObjectRendered != iterEnd) {
-      iter = m_LastObjectRendered;
+    CPDF_PageObjectHolder::const_iterator iter;
+    CPDF_PageObjectHolder::const_iterator iterEnd =
+        current_layer_->GetObjectHolder()->end();
+    if (last_object_rendered_ != iterEnd) {
+      iter = last_object_rendered_;
       ++iter;
     } else {
-      iter = m_pCurrentLayer->m_pObjectHolder->GetPageObjectList()->begin();
+      iter = current_layer_->GetObjectHolder()->begin();
     }
     int nObjsToGo = kStepLimit;
+    bool is_mask = false;
     while (iter != iterEnd) {
       CPDF_PageObject* pCurObj = iter->get();
-      if (pCurObj && pCurObj->m_Left <= m_ClipRect.right &&
-          pCurObj->m_Right >= m_ClipRect.left &&
-          pCurObj->m_Bottom <= m_ClipRect.top &&
-          pCurObj->m_Top >= m_ClipRect.bottom) {
-        if (m_pRenderStatus->ContinueSingleObject(
-                pCurObj, &m_pCurrentLayer->m_Matrix, pPause)) {
+      if (pCurObj->IsActive() && pCurObj->GetRect().left <= clip_rect_.right &&
+          pCurObj->GetRect().right >= clip_rect_.left &&
+          pCurObj->GetRect().bottom <= clip_rect_.top &&
+          pCurObj->GetRect().top >= clip_rect_.bottom) {
+        if (options_->GetOptions().bBreakForMasks && pCurObj->IsImage() &&
+            pCurObj->AsImage()->GetImage()->IsMask()) {
+#if BUILDFLAG(IS_WIN)
+          if (device_->GetDeviceType() == DeviceType::kPrinter) {
+            last_object_rendered_ = iter;
+            render_status_->ProcessClipPath(pCurObj->clip_path(),
+                                            current_layer_->GetMatrix());
+            return;
+          }
+#endif
+          is_mask = true;
+        }
+        if (render_status_->ContinueSingleObject(
+                pCurObj, current_layer_->GetMatrix(), pPause)) {
           return;
         }
-        if (pCurObj->IsImage() &&
-            m_pRenderStatus->m_Options.m_Flags & RENDER_LIMITEDIMAGECACHE) {
-          m_pContext->GetPageCache()->CacheOptimization(
-              m_pRenderStatus->m_Options.m_dwLimitCacheSize);
+        if (pCurObj->IsImage() && render_status_->GetRenderOptions()
+                                      .GetOptions()
+                                      .bLimitedImageCache) {
+          context_->GetPageCache()->CacheOptimization(
+              render_status_->GetRenderOptions().GetCacheSizeLimit());
         }
-        if (pCurObj->IsForm() || pCurObj->IsShading())
+        if (pCurObj->IsForm() || pCurObj->IsShading()) {
           nObjsToGo = 0;
-        else
+        } else {
           --nObjsToGo;
+        }
       }
-      m_LastObjectRendered = iter;
+      last_object_rendered_ = iter;
       if (nObjsToGo == 0) {
-        if (pPause && pPause->NeedToPauseNow())
+        if (pPause && pPause->NeedToPauseNow()) {
           return;
+        }
         nObjsToGo = kStepLimit;
       }
       ++iter;
-    }
-    if (m_pCurrentLayer->m_pObjectHolder->IsParsed()) {
-      m_pRenderStatus.reset();
-      m_pDevice->RestoreState(false);
-      m_pCurrentLayer = nullptr;
-      m_LayerIndex++;
-      if (pPause && pPause->NeedToPauseNow()) {
+      if (is_mask && iter != iterEnd) {
         return;
       }
-    } else {
-      m_pCurrentLayer->m_pObjectHolder->ContinueParse(pPause);
-      if (!m_pCurrentLayer->m_pObjectHolder->IsParsed())
+    }
+    if (current_layer_->GetObjectHolder()->GetParseState() ==
+        CPDF_PageObjectHolder::ParseState::kParsed) {
+      render_status_.reset();
+      device_->RestoreState(false);
+      current_layer_ = nullptr;
+      layer_index_++;
+      if (is_mask || (pPause && pPause->NeedToPauseNow())) {
         return;
+      }
+    } else if (is_mask) {
+      return;
+    } else {
+      current_layer_->GetObjectHolder()->ContinueParse(pPause);
+      if (current_layer_->GetObjectHolder()->GetParseState() !=
+          CPDF_PageObjectHolder::ParseState::kParsed) {
+        return;
+      }
     }
   }
 }

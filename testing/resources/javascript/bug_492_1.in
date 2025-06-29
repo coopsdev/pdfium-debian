@@ -50,8 +50,9 @@ endobj
   /JS 21 0 R
 >>
 endobj
-% JS program to exexute
+% JS program to execute
 {{object 21 0}} <<
+  {{streamlen}}
 >>
 stream
   var annots = this.getAnnots();
@@ -88,8 +89,6 @@ endobj
 endobj
 
 {{xref}}
-trailer <<
-  /Root 1 0 R
->>
+{{trailer}}
 {{startxref}}
 %%EOF

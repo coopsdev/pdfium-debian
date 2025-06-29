@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,12 @@
 
 #include "xfa/fwl/cfwl_eventvalidate.h"
 
-CFWL_EventValidate::CFWL_EventValidate(CFWL_Widget* pSrcTarget)
-    : CFWL_Event(CFWL_Event::Type::Validate, pSrcTarget) {}
+namespace pdfium {
 
-CFWL_EventValidate::~CFWL_EventValidate() {}
+CFWL_EventValidate::CFWL_EventValidate(CFWL_Widget* pSrcTarget,
+                                       const WideString& wsInsert)
+    : CFWL_Event(CFWL_Event::Type::Validate, pSrcTarget), insert_(wsInsert) {}
+
+CFWL_EventValidate::~CFWL_EventValidate() = default;
+
+}  // namespace pdfium

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,19 @@
 #ifndef XFA_FXFA_PARSER_CXFA_EXDATA_H_
 #define XFA_FXFA_PARSER_CXFA_EXDATA_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_ExData : public CXFA_Data {
+class CXFA_ExData final : public CXFA_Node {
  public:
-  explicit CXFA_ExData(CXFA_Node* pNode);
+  static CXFA_ExData* FromNode(CXFA_Node* pNode);
 
-  bool SetContentType(const CFX_WideString& wsContentType);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
+  ~CXFA_ExData() override;
+
+  void SetContentType(const WideString& wsContentType);
+
+ private:
+  CXFA_ExData(CXFA_Document* doc, XFA_PacketType packet);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_EXDATA_H_

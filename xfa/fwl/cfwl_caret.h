@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,49 +9,43 @@
 
 #include <memory>
 
-#include "xfa/fwl/cfwl_timer.h"
+#include "core/fxcrt/cfx_timer.h"
+#include "xfa/fgas/graphics/cfgas_gecolor.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fxgraphics/cfx_color.h"
 
-class CFWL_WidgetProperties;
-class CFWL_Widget;
+namespace pdfium {
 
-#define FWL_STATE_CAT_HightLight 1
-
-class CFWL_Caret : public CFWL_Widget {
+class CFWL_Caret final : public CFWL_Widget, public CFX_Timer::CallbackIface {
  public:
-  CFWL_Caret(const CFWL_App* app,
-             std::unique_ptr<CFWL_WidgetProperties> properties,
-             CFWL_Widget* pOuter);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_Caret() override;
 
-  // CFWL_Widget
+  // CFWL_Widget:
   FWL_Type GetClassID() const override;
-  void DrawWidget(CFX_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CFGAS_GEGraphics* pGraphics,
+                  const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
-  void OnDrawWidget(CFX_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+  void OnDrawWidget(CFGAS_GEGraphics* pGraphics,
+                    const CFX_Matrix& matrix) override;
   void Update() override;
+
+  // CFX_Timer::CallbackIface:
+  void OnTimerFired() override;
 
   void ShowCaret();
   void HideCaret();
 
  private:
-  class Timer : public CFWL_Timer {
-   public:
-    explicit Timer(CFWL_Caret* pCaret);
-    ~Timer() override {}
+  CFWL_Caret(CFWL_App* app, const Properties& properties, CFWL_Widget* pOuter);
 
-    void Run(CFWL_TimerInfo* hTimer) override;
-  };
-  friend class CFWL_Caret::Timer;
+  void DrawCaretBK(CFGAS_GEGraphics* pGraphics, const CFX_Matrix& mtMatrix);
 
-  void DrawCaretBK(CFX_Graphics* pGraphics,
-                   IFWL_ThemeProvider* pTheme,
-                   const CFX_Matrix* pMatrix);
-
-  std::unique_ptr<CFWL_Caret::Timer> m_pTimer;
-  CFWL_TimerInfo* m_pTimerInfo;  // not owned.
+  std::unique_ptr<CFX_Timer> timer_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_Caret;
 
 #endif  // XFA_FWL_CFWL_CARET_H_

@@ -1,45 +1,68 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "xfa/fxfa/parser/xfa_object.h"
+#include "xfa/fxfa/parser/cxfa_attachnodelist.h"
 
-CXFA_AttachNodeList::CXFA_AttachNodeList(CXFA_Document* pDocument,
+#include "xfa/fxfa/parser/cxfa_node.h"
+
+CXFA_AttachNodeList::CXFA_AttachNodeList(CXFA_Document* document,
                                          CXFA_Node* pAttachNode)
-    : CXFA_NodeList(pDocument) {
-  m_pAttachNode = pAttachNode;
+    : CXFA_TreeList(document), attach_node_(pAttachNode) {}
+
+CXFA_AttachNodeList::~CXFA_AttachNodeList() = default;
+
+void CXFA_AttachNodeList::Trace(cppgc::Visitor* visitor) const {
+  CXFA_TreeList::Trace(visitor);
+  visitor->Trace(attach_node_);
 }
 
-int32_t CXFA_AttachNodeList::GetLength() {
-  return m_pAttachNode->CountChildren(
+size_t CXFA_AttachNodeList::GetLength() {
+  return attach_node_->CountChildren(
       XFA_Element::Unknown,
-      m_pAttachNode->GetElementType() == XFA_Element::Subform);
+      attach_node_->GetElementType() == XFA_Element::Subform);
 }
 
 bool CXFA_AttachNodeList::Append(CXFA_Node* pNode) {
-  CXFA_Node* pParent = pNode->GetNodeItem(XFA_NODEITEM_Parent);
-  if (pParent) {
-    pParent->RemoveChild(pNode);
+  if (pNode->IsAncestorOf(attach_node_)) {
+    return false;
   }
-  return m_pAttachNode->InsertChild(pNode);
+
+  CXFA_Node* pParent = pNode->GetParent();
+  if (pParent) {
+    pParent->RemoveChildAndNotify(pNode, true);
+  }
+
+  attach_node_->InsertChildAndNotify(pNode, nullptr);
+  return true;
 }
 
 bool CXFA_AttachNodeList::Insert(CXFA_Node* pNewNode, CXFA_Node* pBeforeNode) {
-  CXFA_Node* pParent = pNewNode->GetNodeItem(XFA_NODEITEM_Parent);
-  if (pParent) {
-    pParent->RemoveChild(pNewNode);
+  if (pNewNode->IsAncestorOf(attach_node_)) {
+    return false;
   }
-  return m_pAttachNode->InsertChild(pNewNode, pBeforeNode);
+
+  if (pBeforeNode && pBeforeNode->GetParent() != attach_node_) {
+    return false;
+  }
+
+  CXFA_Node* pParent = pNewNode->GetParent();
+  if (pParent) {
+    pParent->RemoveChildAndNotify(pNewNode, true);
+  }
+
+  attach_node_->InsertChildAndNotify(pNewNode, pBeforeNode);
+  return true;
 }
 
-bool CXFA_AttachNodeList::Remove(CXFA_Node* pNode) {
-  return m_pAttachNode->RemoveChild(pNode);
+void CXFA_AttachNodeList::Remove(CXFA_Node* pNode) {
+  attach_node_->RemoveChildAndNotify(pNode, true);
 }
 
-CXFA_Node* CXFA_AttachNodeList::Item(int32_t iIndex) {
-  return m_pAttachNode->GetChild(
-      iIndex, XFA_Element::Unknown,
-      m_pAttachNode->GetElementType() == XFA_Element::Subform);
+CXFA_Node* CXFA_AttachNodeList::Item(size_t index) {
+  return attach_node_->GetChild<CXFA_Node>(
+      index, XFA_Element::Unknown,
+      attach_node_->GetElementType() == XFA_Element::Subform);
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,70 +6,56 @@
 
 #include "xfa/fwl/cfwl_comboedit.h"
 
-#include <memory>
-#include <utility>
-
-#include "xfa/fde/cfde_txtedtengine.h"
+#include "xfa/fde/cfde_texteditengine.h"
 #include "xfa/fwl/cfwl_combobox.h"
 #include "xfa/fwl/cfwl_messagemouse.h"
 
-CFWL_ComboEdit::CFWL_ComboEdit(
-    const CFWL_App* app,
-    std::unique_ptr<CFWL_WidgetProperties> properties,
-    CFWL_Widget* pOuter)
-    : CFWL_Edit(app, std::move(properties), pOuter) {
-  m_pOuter = static_cast<CFWL_ComboBox*>(pOuter);
-}
+namespace pdfium {
+
+CFWL_ComboEdit::CFWL_ComboEdit(CFWL_App* app,
+                               const Properties& properties,
+                               CFWL_Widget* pOuter)
+    : CFWL_Edit(app, properties, pOuter) {}
+
+CFWL_ComboEdit::~CFWL_ComboEdit() = default;
 
 void CFWL_ComboEdit::ClearSelected() {
-  ClearSelections();
+  ClearSelection();
   RepaintRect(GetRTClient());
 }
 
 void CFWL_ComboEdit::SetSelected() {
-  FlagFocus(true);
-  GetTxtEdtEngine()->MoveCaretPos(MC_End);
-  AddSelRange(0);
-}
-
-void CFWL_ComboEdit::FlagFocus(bool bSet) {
-  if (bSet) {
-    m_pProperties->m_dwStates |= FWL_WGTSTATE_Focused;
-    return;
-  }
-
-  m_pProperties->m_dwStates &= ~FWL_WGTSTATE_Focused;
-  HideCaret(nullptr);
+  properties_.states_ |= FWL_STATE_WGT_Focused;
+  SelectAll();
 }
 
 void CFWL_ComboEdit::OnProcessMessage(CFWL_Message* pMessage) {
-  if (!pMessage)
-    return;
-
   bool backDefault = true;
   switch (pMessage->GetType()) {
-    case CFWL_Message::Type::SetFocus: {
-      m_pProperties->m_dwStates |= FWL_WGTSTATE_Focused;
+    case CFWL_Message::Type::kSetFocus: {
+      properties_.states_ |= FWL_STATE_WGT_Focused;
       backDefault = false;
       break;
     }
-    case CFWL_Message::Type::KillFocus: {
-      m_pProperties->m_dwStates &= ~FWL_WGTSTATE_Focused;
+    case CFWL_Message::Type::kKillFocus: {
+      properties_.states_ &= ~FWL_STATE_WGT_Focused;
       backDefault = false;
       break;
     }
-    case CFWL_Message::Type::Mouse: {
+    case CFWL_Message::Type::kMouse: {
       CFWL_MessageMouse* pMsg = static_cast<CFWL_MessageMouse*>(pMessage);
-      if ((pMsg->m_dwCmd == FWL_MouseCommand::LeftButtonDown) &&
-          ((m_pProperties->m_dwStates & FWL_WGTSTATE_Focused) == 0)) {
+      if ((pMsg->cmd_ == CFWL_MessageMouse::MouseCommand::kLeftButtonDown) &&
+          ((properties_.states_ & FWL_STATE_WGT_Focused) == 0)) {
         SetSelected();
-        m_pOuter->SetFocus(true);
       }
       break;
     }
     default:
       break;
   }
-  if (backDefault)
+  if (backDefault) {
     CFWL_Edit::OnProcessMessage(pMessage);
+  }
 }
+
+}  // namespace pdfium

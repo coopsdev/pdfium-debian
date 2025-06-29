@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,68 +6,147 @@
 
 #include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
 
+#include <stdint.h>
+
+#include <algorithm>
 #include <utility>
 
+#include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fpdfapi/parser/cpdf_seekablemultistream.h"
+#include "core/fxcodec/jpeg/jpeg_progressive_decoder.h"
+#include "core/fxcrt/autonuller.h"
+#include "core/fxcrt/check.h"
+#include "core/fxcrt/fixed_size_data_vector.h"
+#include "core/fxcrt/stl_util.h"
+#include "core/fxcrt/xml/cfx_xmldocument.h"
+#include "core/fxcrt/xml/cfx_xmlparser.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_interform.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
+#include "fpdfsdk/fpdfxfa/cpdfxfa_docenvironment.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_page.h"
-#include "fpdfsdk/fpdfxfa/cxfa_fwladaptertimermgr.h"
-#include "fpdfsdk/fsdk_define.h"
-#include "fpdfsdk/javascript/cjs_runtime.h"
-#include "fpdfsdk/javascript/ijs_runtime.h"
+#include "fxbarcode/BC_Library.h"
+#include "fxjs/cjs_runtime.h"
+#include "fxjs/ijs_runtime.h"
 #include "public/fpdf_formfill.h"
-#include "third_party/base/ptr_util.h"
-#include "third_party/base/stl_util.h"
+#include "v8/include/cppgc/allocation.h"
+#include "xfa/fgas/font/cfgas_gemodule.h"
 #include "xfa/fxfa/cxfa_eventparam.h"
-#include "xfa/fxfa/xfa_ffapp.h"
-#include "xfa/fxfa/xfa_ffdoc.h"
-#include "xfa/fxfa/xfa_ffdocview.h"
-#include "xfa/fxfa/xfa_ffpageview.h"
-#include "xfa/fxfa/xfa_ffwidgethandler.h"
-#include "xfa/fxfa/xfa_fontmgr.h"
+#include "xfa/fxfa/cxfa_ffapp.h"
+#include "xfa/fxfa/cxfa_ffdoc.h"
+#include "xfa/fxfa/cxfa_ffdocview.h"
+#include "xfa/fxfa/cxfa_ffpageview.h"
+#include "xfa/fxfa/cxfa_ffwidgethandler.h"
+#include "xfa/fxfa/cxfa_fontmgr.h"
+#include "xfa/fxfa/cxfa_readynodeiterator.h"
 
-#ifndef _WIN32
-extern void SetLastError(int err);
-extern int GetLastError();
+#ifdef PDF_ENABLE_XFA_BMP
+#include "core/fxcodec/bmp/bmp_progressive_decoder.h"
 #endif
 
-CPDFXFA_Context::CPDFXFA_Context(std::unique_ptr<CPDF_Document> pPDFDoc)
-    : m_iDocType(DOCTYPE_PDF),
-      m_pPDFDoc(std::move(pPDFDoc)),
-      m_pFormFillEnv(nullptr),
-      m_pXFADocView(nullptr),
-      m_nLoadStatus(FXFA_LOADSTATUS_PRELOAD),
-      m_nPageCount(0),
-      m_DocEnv(this) {
-  m_pXFAApp = pdfium::MakeUnique<CXFA_FFApp>(this);
-  m_pXFAApp->SetDefaultFontMgr(pdfium::MakeUnique<CXFA_DefFontMgr>());
+#ifdef PDF_ENABLE_XFA_GIF
+#include "core/fxcodec/gif/gif_progressive_decoder.h"
+#endif
+
+namespace {
+
+bool IsValidAlertButton(int type) {
+  return type == JSPLATFORM_ALERT_BUTTON_OK ||
+         type == JSPLATFORM_ALERT_BUTTON_OKCANCEL ||
+         type == JSPLATFORM_ALERT_BUTTON_YESNO ||
+         type == JSPLATFORM_ALERT_BUTTON_YESNOCANCEL;
+}
+
+bool IsValidAlertIcon(int type) {
+  return type == JSPLATFORM_ALERT_ICON_ERROR ||
+         type == JSPLATFORM_ALERT_ICON_WARNING ||
+         type == JSPLATFORM_ALERT_ICON_QUESTION ||
+         type == JSPLATFORM_ALERT_ICON_STATUS ||
+         type == JSPLATFORM_ALERT_ICON_ASTERISK;
+}
+
+RetainPtr<CPDF_SeekableMultiStream> CreateXFAMultiStream(
+    const CPDF_Document* pPDFDoc) {
+  const CPDF_Dictionary* pRoot = pPDFDoc->GetRoot();
+  if (!pRoot) {
+    return nullptr;
+  }
+
+  RetainPtr<const CPDF_Dictionary> pAcroForm = pRoot->GetDictFor("AcroForm");
+  if (!pAcroForm) {
+    return nullptr;
+  }
+
+  RetainPtr<const CPDF_Object> pElementXFA =
+      pAcroForm->GetDirectObjectFor("XFA");
+  if (!pElementXFA) {
+    return nullptr;
+  }
+
+  std::vector<RetainPtr<const CPDF_Stream>> xfa_streams;
+  if (pElementXFA->IsArray()) {
+    const CPDF_Array* pXFAArray = pElementXFA->AsArray();
+    for (size_t i = 0; i < pXFAArray->size() / 2; i++) {
+      RetainPtr<const CPDF_Stream> pStream = pXFAArray->GetStreamAt(i * 2 + 1);
+      if (pStream) {
+        xfa_streams.push_back(std::move(pStream));
+      }
+    }
+  } else if (pElementXFA->IsStream()) {
+    xfa_streams.push_back(ToStream(pElementXFA));
+  }
+  if (xfa_streams.empty()) {
+    return nullptr;
+  }
+
+  return pdfium::MakeRetain<CPDF_SeekableMultiStream>(std::move(xfa_streams));
+}
+
+}  // namespace
+
+void CPDFXFA_ModuleInit() {
+  CFGAS_GEModule::Create();
+  BC_Library_Init();
+#ifdef PDF_ENABLE_XFA_BMP
+  fxcodec::BmpProgressiveDecoder::InitializeGlobals();
+#endif
+#ifdef PDF_ENABLE_XFA_GIF
+  fxcodec::GifProgressiveDecoder::InitializeGlobals();
+#endif
+  fxcodec::JpegProgressiveDecoder::InitializeGlobals();
+}
+
+void CPDFXFA_ModuleDestroy() {
+  fxcodec::JpegProgressiveDecoder::DestroyGlobals();
+#ifdef PDF_ENABLE_XFA_GIF
+  fxcodec::GifProgressiveDecoder::DestroyGlobals();
+#endif
+#ifdef PDF_ENABLE_XFA_BMP
+  fxcodec::BmpProgressiveDecoder::DestroyGlobals();
+#endif
+  BC_Library_Destroy();
+  CFGAS_GEModule::Destroy();
+}
+
+CPDFXFA_Context::CPDFXFA_Context(CPDF_Document* pPDFDoc)
+    : pdfdoc_(pPDFDoc),
+      doc_env_(std::make_unique<CPDFXFA_DocEnvironment>(this)),
+      gc_heap_(FXGC_CreateHeap()) {
+  DCHECK(pdfdoc_);
+
+  // There might not be a heap when JS not initialized.
+  if (gc_heap_) {
+    xfaapp_ = cppgc::MakeGarbageCollected<CXFA_FFApp>(
+        gc_heap_->GetAllocationHandle(), this);
+  }
 }
 
 CPDFXFA_Context::~CPDFXFA_Context() {
-  m_nLoadStatus = FXFA_LOADSTATUS_CLOSING;
-
-  // Must happen before we remove the form fill environment.
-  CloseXFADoc();
-
-  if (m_pFormFillEnv) {
-    m_pFormFillEnv->ClearAllFocusedAnnots();
-    // Once we're deleted the FormFillEnvironment will point at a bad underlying
-    // doc so we need to reset it ...
-    m_pFormFillEnv->ResetXFADocument();
-    m_pFormFillEnv = nullptr;
+  load_status_ = LoadStatus::kClosing;
+  if (form_fill_env_) {
+    form_fill_env_->ClearAllFocusedAnnots();
   }
-
-  m_nLoadStatus = FXFA_LOADSTATUS_CLOSED;
-}
-
-void CPDFXFA_Context::CloseXFADoc() {
-  if (!m_pXFADoc)
-    return;
-  m_pXFADoc->CloseDoc();
-  m_pXFADoc.reset();
-  m_pXFADocView = nullptr;
 }
 
 void CPDFXFA_Context::SetFormFillEnv(
@@ -75,295 +154,349 @@ void CPDFXFA_Context::SetFormFillEnv(
   // The layout data can have pointers back into the script context. That
   // context will be different if the form fill environment closes, so, force
   // the layout data to clear.
-  if (m_pXFADoc && m_pXFADoc->GetXFADoc())
-    m_pXFADoc->GetXFADoc()->ClearLayoutData();
-
-  m_pFormFillEnv = pFormFillEnv;
+  if (xfadoc_ && xfadoc_->GetXFADoc()) {
+    xfadoc_->GetXFADoc()->ClearLayoutData();
+    xfadoc_view_.Clear();
+    xfadoc_.Clear();
+    xfaapp_.Clear();
+    FXGC_ForceGarbageCollection(gc_heap_.get());
+  }
+  form_fill_env_.Reset(pFormFillEnv);
 }
 
 bool CPDFXFA_Context::LoadXFADoc() {
-  m_nLoadStatus = FXFA_LOADSTATUS_LOADING;
-  if (!m_pPDFDoc)
-    return false;
+  load_status_ = LoadStatus::kLoading;
+  xfa_page_list_.clear();
 
-  m_XFAPageList.clear();
-
-  CXFA_FFApp* pApp = GetXFAApp();
-  if (!pApp)
-    return false;
-
-  m_pXFADoc = pApp->CreateDoc(&m_DocEnv, m_pPDFDoc.get());
-  if (!m_pXFADoc) {
-    SetLastError(FPDF_ERR_XFALOAD);
+  CJS_Runtime* actual_runtime = GetCJSRuntime();  // Null if a stub.
+  if (!actual_runtime) {
+    FXSYS_SetLastError(FPDF_ERR_XFALOAD);
     return false;
   }
 
-  CXFA_FFDocHandler* pDocHandler = pApp->GetDocHandler();
-  if (!pDocHandler) {
-    SetLastError(FPDF_ERR_XFALOAD);
+  auto stream = CreateXFAMultiStream(pdfdoc_);
+  if (!stream) {
+    FXSYS_SetLastError(FPDF_ERR_XFALOAD);
     return false;
   }
 
-  m_pXFADoc->StartLoad();
-  int iStatus = m_pXFADoc->DoLoad(nullptr);
-  if (iStatus != XFA_PARSESTATUS_Done) {
-    CloseXFADoc();
-    SetLastError(FPDF_ERR_XFALOAD);
-    return false;
-  }
-  m_pXFADoc->StopLoad();
-  m_pXFADoc->GetXFADoc()->InitScriptContext(GetJSERuntime());
-
-  if (m_pXFADoc->GetDocType() == XFA_DOCTYPE_Dynamic)
-    m_iDocType = DOCTYPE_DYNAMIC_XFA;
-  else
-    m_iDocType = DOCTYPE_STATIC_XFA;
-
-  m_pXFADocView = m_pXFADoc->CreateDocView(XFA_DOCVIEW_View);
-  if (m_pXFADocView->StartLayout() < 0) {
-    CloseXFADoc();
-    SetLastError(FPDF_ERR_XFALAYOUT);
+  CFX_XMLParser parser(stream);
+  xml_ = parser.Parse();
+  if (!xml_) {
+    FXSYS_SetLastError(FPDF_ERR_XFALOAD);
     return false;
   }
 
-  m_pXFADocView->DoLayout(nullptr);
-  m_pXFADocView->StopLayout();
-  m_nLoadStatus = FXFA_LOADSTATUS_LOADED;
+  AutoNuller<cppgc::Persistent<CXFA_FFDoc>> doc_nuller(&xfadoc_);
+  xfadoc_ = cppgc::MakeGarbageCollected<CXFA_FFDoc>(
+      gc_heap_->GetAllocationHandle(), xfaapp_, doc_env_.get(), pdfdoc_,
+      gc_heap_.get());
 
+  if (!xfadoc_->OpenDoc(xml_.get())) {
+    FXSYS_SetLastError(FPDF_ERR_XFALOAD);
+    return false;
+  }
+
+  if (!xfaapp_->LoadFWLTheme(xfadoc_)) {
+    FXSYS_SetLastError(FPDF_ERR_XFALAYOUT);
+    return false;
+  }
+
+  xfadoc_->GetXFADoc()->InitScriptContext(actual_runtime);
+  if (xfadoc_->GetFormType() == FormType::kXFAFull) {
+    form_type_ = FormType::kXFAFull;
+  } else {
+    form_type_ = FormType::kXFAForeground;
+  }
+
+  AutoNuller<cppgc::Persistent<CXFA_FFDocView>> view_nuller(&xfadoc_view_);
+  xfadoc_view_ = xfadoc_->CreateDocView();
+
+  if (xfadoc_view_->StartLayout() < 0) {
+    xfadoc_->GetXFADoc()->ClearLayoutData();
+    FXGC_ForceGarbageCollection(gc_heap_.get());
+    FXSYS_SetLastError(FPDF_ERR_XFALAYOUT);
+    return false;
+  }
+
+  xfadoc_view_->DoLayout();
+  xfadoc_view_->StopLayout();
+
+  view_nuller.AbandonNullification();
+  doc_nuller.AbandonNullification();
+  load_status_ = LoadStatus::kLoaded;
   return true;
 }
 
 int CPDFXFA_Context::GetPageCount() const {
-  if (!m_pPDFDoc && !m_pXFADoc)
-    return 0;
-
-  switch (m_iDocType) {
-    case DOCTYPE_PDF:
-    case DOCTYPE_STATIC_XFA:
-      if (m_pPDFDoc)
-        return m_pPDFDoc->GetPageCount();
-    case DOCTYPE_DYNAMIC_XFA:
-      if (m_pXFADoc)
-        return m_pXFADocView->CountPageViews();
-    default:
-      return 0;
+  switch (form_type_) {
+    case FormType::kNone:
+    case FormType::kAcroForm:
+    case FormType::kXFAForeground:
+      return pdfdoc_->GetPageCount();
+    case FormType::kXFAFull:
+      return xfadoc_ ? xfadoc_view_->CountPageViews() : 0;
   }
 }
 
-CPDFXFA_Page* CPDFXFA_Context::GetXFAPage(int page_index) {
-  if (page_index < 0)
+RetainPtr<CPDFXFA_Page> CPDFXFA_Context::GetOrCreateXFAPage(int page_index) {
+  if (page_index < 0) {
     return nullptr;
+  }
 
-  CPDFXFA_Page* pPage = nullptr;
-  int nCount = pdfium::CollectionSize<int>(m_XFAPageList);
-  if (nCount > 0 && page_index < nCount) {
-    pPage = m_XFAPageList[page_index];
-    if (pPage) {
-      pPage->Retain();
-      return pPage;
+  if (fxcrt::IndexInBounds(xfa_page_list_, page_index)) {
+    if (xfa_page_list_[page_index]) {
+      return xfa_page_list_[page_index];
     }
   } else {
-    m_nPageCount = GetPageCount();
-    m_XFAPageList.resize(m_nPageCount);
+    page_count_ = GetPageCount();
+    xfa_page_list_.resize(page_count_);
   }
 
-  pPage = new CPDFXFA_Page(this, page_index);
+  auto pPage = pdfium::MakeRetain<CPDFXFA_Page>(GetPDFDoc(), page_index);
   if (!pPage->LoadPage()) {
-    pPage->Release();
     return nullptr;
   }
-  if (page_index >= 0 &&
-      page_index < pdfium::CollectionSize<int>(m_XFAPageList)) {
-    m_XFAPageList[page_index] = pPage;
+
+  if (fxcrt::IndexInBounds(xfa_page_list_, page_index)) {
+    xfa_page_list_[page_index] = pPage;
   }
+
   return pPage;
 }
 
-CPDFXFA_Page* CPDFXFA_Context::GetXFAPage(CXFA_FFPageView* pPage) const {
-  if (!pPage)
+RetainPtr<CPDFXFA_Page> CPDFXFA_Context::GetXFAPage(int page_index) {
+  if (!fxcrt::IndexInBounds(xfa_page_list_, page_index)) {
     return nullptr;
+  }
 
-  if (!m_pXFADoc)
+  return xfa_page_list_[page_index];
+}
+
+RetainPtr<CPDFXFA_Page> CPDFXFA_Context::GetXFAPage(
+    CXFA_FFPageView* pPage) const {
+  if (!pPage) {
     return nullptr;
+  }
 
-  if (m_iDocType != DOCTYPE_DYNAMIC_XFA)
+  if (!xfadoc_) {
     return nullptr;
+  }
 
-  for (CPDFXFA_Page* pTempPage : m_XFAPageList) {
-    if (pTempPage && pTempPage->GetXFAPageView() == pPage)
+  if (form_type_ != FormType::kXFAFull) {
+    return nullptr;
+  }
+
+  for (auto& pTempPage : xfa_page_list_) {
+    if (pTempPage && pTempPage->GetXFAPageView() == pPage) {
       return pTempPage;
+    }
   }
   return nullptr;
 }
 
-void CPDFXFA_Context::DeletePage(int page_index) {
+uint32_t CPDFXFA_Context::DeletePage(int page_index) {
   // Delete from the document first because, if GetPage was never called for
-  // this |page_index| then |m_XFAPageList| may have size < |page_index| even
+  // this |page_index| then |xfa_page_list_| may have size < |page_index| even
   // if it's a valid page in the document.
-  if (m_pPDFDoc)
-    m_pPDFDoc->DeletePage(page_index);
+  uint32_t page_obj_num = pdfdoc_->DeletePage(page_index);
 
-  if (page_index < 0 ||
-      page_index >= pdfium::CollectionSize<int>(m_XFAPageList)) {
-    return;
+  if (fxcrt::IndexInBounds(xfa_page_list_, page_index)) {
+    xfa_page_list_.erase(xfa_page_list_.begin() + page_index);
+    for (int i = page_index; i < fxcrt::CollectionSize<int>(xfa_page_list_);
+         i++) {
+      if (xfa_page_list_[i]) {
+        xfa_page_list_[i]->SetXFAPageViewIndex(i);
+      }
+    }
   }
-  if (CPDFXFA_Page* pPage = m_XFAPageList[page_index])
-    pPage->Release();
+
+  return page_obj_num;
 }
 
-void CPDFXFA_Context::RemovePage(CPDFXFA_Page* page) {
-  int page_index = page->GetPageIndex();
-  if (page_index >= 0 &&
-      page_index < pdfium::CollectionSize<int>(m_XFAPageList)) {
-    m_XFAPageList[page_index] = nullptr;
-  }
+bool CPDFXFA_Context::ContainsExtensionForm() const {
+  return form_type_ == FormType::kXFAFull ||
+         form_type_ == FormType::kXFAForeground;
+}
+
+bool CPDFXFA_Context::ContainsExtensionFullForm() const {
+  return form_type_ == FormType::kXFAFull;
+}
+
+bool CPDFXFA_Context::ContainsExtensionForegroundForm() const {
+  return form_type_ == FormType::kXFAForeground;
 }
 
 void CPDFXFA_Context::ClearChangeMark() {
-  if (m_pFormFillEnv)
-    m_pFormFillEnv->ClearChangeMark();
+  if (form_fill_env_) {
+    form_fill_env_->ClearChangeMark();
+  }
 }
 
-v8::Isolate* CPDFXFA_Context::GetJSERuntime() const {
-  if (!m_pFormFillEnv)
+CJS_Runtime* CPDFXFA_Context::GetCJSRuntime() const {
+  if (!form_fill_env_) {
     return nullptr;
+  }
 
-  // XFA requires V8, if we have V8 then we have a CJS_Runtime and not the stub.
-  CJS_Runtime* runtime =
-      static_cast<CJS_Runtime*>(m_pFormFillEnv->GetJSRuntime());
-  return runtime->GetIsolate();
+  return form_fill_env_->GetIJSRuntime()->AsCJSRuntime();
 }
 
-CFX_WideString CPDFXFA_Context::GetAppTitle() const {
-  return L"PDFium";
+WideString CPDFXFA_Context::GetAppTitle() const {
+  return WideString::FromASCII("PDFium");
 }
 
-CFX_WideString CPDFXFA_Context::GetAppName() {
-  return m_pFormFillEnv ? m_pFormFillEnv->FFI_GetAppName() : L"";
+WideString CPDFXFA_Context::GetAppName() {
+  return form_fill_env_ ? form_fill_env_->FFI_GetAppName() : WideString();
 }
 
-CFX_WideString CPDFXFA_Context::GetLanguage() {
-  return m_pFormFillEnv ? m_pFormFillEnv->GetLanguage() : L"";
+WideString CPDFXFA_Context::GetLanguage() {
+  return form_fill_env_ ? form_fill_env_->GetLanguage() : WideString();
 }
 
-CFX_WideString CPDFXFA_Context::GetPlatform() {
-  return m_pFormFillEnv ? m_pFormFillEnv->GetPlatform() : L"";
+WideString CPDFXFA_Context::GetPlatform() {
+  return form_fill_env_ ? form_fill_env_->GetPlatform() : WideString();
 }
 
 void CPDFXFA_Context::Beep(uint32_t dwType) {
-  if (m_pFormFillEnv)
-    m_pFormFillEnv->JS_appBeep(dwType);
+  if (form_fill_env_) {
+    form_fill_env_->JS_appBeep(dwType);
+  }
 }
 
-int32_t CPDFXFA_Context::MsgBox(const CFX_WideString& wsMessage,
-                                const CFX_WideString& wsTitle,
+int32_t CPDFXFA_Context::MsgBox(const WideString& wsMessage,
+                                const WideString& wsTitle,
                                 uint32_t dwIconType,
                                 uint32_t dwButtonType) {
-  if (!m_pFormFillEnv)
+  if (!form_fill_env_ || load_status_ != LoadStatus::kLoaded) {
     return -1;
+  }
 
-  uint32_t iconType = 0;
-  int iButtonType = 0;
-  switch (dwIconType) {
-    case XFA_MBICON_Error:
-      iconType |= 0;
-      break;
-    case XFA_MBICON_Warning:
-      iconType |= 1;
-      break;
-    case XFA_MBICON_Question:
-      iconType |= 2;
-      break;
-    case XFA_MBICON_Status:
-      iconType |= 3;
-      break;
-  }
-  switch (dwButtonType) {
-    case XFA_MB_OK:
-      iButtonType |= 0;
-      break;
-    case XFA_MB_OKCancel:
-      iButtonType |= 1;
-      break;
-    case XFA_MB_YesNo:
-      iButtonType |= 2;
-      break;
-    case XFA_MB_YesNoCancel:
-      iButtonType |= 3;
-      break;
-  }
-  int32_t iRet = m_pFormFillEnv->JS_appAlert(wsMessage.c_str(), wsTitle.c_str(),
-                                             iButtonType, iconType);
-  switch (iRet) {
-    case 1:
-      return XFA_IDOK;
-    case 2:
-      return XFA_IDCancel;
-    case 3:
-      return XFA_IDNo;
-    case 4:
-      return XFA_IDYes;
-  }
-  return XFA_IDYes;
+  int iconType =
+      IsValidAlertIcon(dwIconType) ? dwIconType : JSPLATFORM_ALERT_ICON_DEFAULT;
+  int iButtonType = IsValidAlertButton(dwButtonType)
+                        ? dwButtonType
+                        : JSPLATFORM_ALERT_BUTTON_DEFAULT;
+  return form_fill_env_->JS_appAlert(wsMessage, wsTitle, iButtonType, iconType);
 }
 
-CFX_WideString CPDFXFA_Context::Response(const CFX_WideString& wsQuestion,
-                                         const CFX_WideString& wsTitle,
-                                         const CFX_WideString& wsDefaultAnswer,
-                                         bool bMark) {
-  CFX_WideString wsAnswer;
-  if (!m_pFormFillEnv)
-    return wsAnswer;
-
-  int nLength = 2048;
-  char* pBuff = new char[nLength];
-  nLength = m_pFormFillEnv->JS_appResponse(wsQuestion.c_str(), wsTitle.c_str(),
-                                           wsDefaultAnswer.c_str(), nullptr,
-                                           bMark, pBuff, nLength);
-  if (nLength > 0) {
-    nLength = nLength > 2046 ? 2046 : nLength;
-    pBuff[nLength] = 0;
-    pBuff[nLength + 1] = 0;
-    wsAnswer = CFX_WideString::FromUTF16LE(
-        reinterpret_cast<const unsigned short*>(pBuff),
-        nLength / sizeof(unsigned short));
+WideString CPDFXFA_Context::Response(const WideString& wsQuestion,
+                                     const WideString& wsTitle,
+                                     const WideString& wsDefaultAnswer,
+                                     bool bMark) {
+  if (!form_fill_env_) {
+    return WideString();
   }
-  delete[] pBuff;
-  return wsAnswer;
+
+  static constexpr int kMaxWideChars = 1024;
+  static constexpr int kMaxBytes = kMaxWideChars * sizeof(uint16_t);
+  auto buffer = FixedSizeDataVector<uint8_t>::Zeroed(kMaxBytes);
+  pdfium::span<uint8_t> buffer_span = buffer.span();
+  int byte_length = form_fill_env_->JS_appResponse(
+      wsQuestion, wsTitle, wsDefaultAnswer, WideString(), bMark, buffer_span);
+  if (byte_length <= 0) {
+    return WideString();
+  }
+
+  buffer_span = buffer_span.first(std::min<size_t>(kMaxBytes, byte_length));
+  return WideString::FromUTF16LE(buffer_span);
 }
 
-CFX_RetainPtr<IFX_SeekableReadStream> CPDFXFA_Context::DownloadURL(
-    const CFX_WideString& wsURL) {
-  return m_pFormFillEnv ? m_pFormFillEnv->DownloadFromURL(wsURL.c_str())
-                        : nullptr;
+RetainPtr<IFX_SeekableReadStream> CPDFXFA_Context::DownloadURL(
+    const WideString& wsURL) {
+  return form_fill_env_ ? form_fill_env_->DownloadFromURL(wsURL) : nullptr;
 }
 
-bool CPDFXFA_Context::PostRequestURL(const CFX_WideString& wsURL,
-                                     const CFX_WideString& wsData,
-                                     const CFX_WideString& wsContentType,
-                                     const CFX_WideString& wsEncode,
-                                     const CFX_WideString& wsHeader,
-                                     CFX_WideString& wsResponse) {
-  if (!m_pFormFillEnv)
+bool CPDFXFA_Context::PostRequestURL(const WideString& wsURL,
+                                     const WideString& wsData,
+                                     const WideString& wsContentType,
+                                     const WideString& wsEncode,
+                                     const WideString& wsHeader,
+                                     WideString& wsResponse) {
+  if (!form_fill_env_) {
     return false;
+  }
 
-  wsResponse = m_pFormFillEnv->PostRequestURL(
-      wsURL.c_str(), wsData.c_str(), wsContentType.c_str(), wsEncode.c_str(),
-      wsHeader.c_str());
+  wsResponse = form_fill_env_->PostRequestURL(wsURL, wsData, wsContentType,
+                                              wsEncode, wsHeader);
   return true;
 }
 
-bool CPDFXFA_Context::PutRequestURL(const CFX_WideString& wsURL,
-                                    const CFX_WideString& wsData,
-                                    const CFX_WideString& wsEncode) {
-  return m_pFormFillEnv &&
-         m_pFormFillEnv->PutRequestURL(wsURL.c_str(), wsData.c_str(),
-                                       wsEncode.c_str());
+bool CPDFXFA_Context::PutRequestURL(const WideString& wsURL,
+                                    const WideString& wsData,
+                                    const WideString& wsEncode) {
+  return form_fill_env_ &&
+         form_fill_env_->PutRequestURL(wsURL, wsData, wsEncode);
 }
 
-IFWL_AdapterTimerMgr* CPDFXFA_Context::GetTimerMgr() {
-  CXFA_FWLAdapterTimerMgr* pAdapter = nullptr;
-  if (m_pFormFillEnv)
-    pAdapter = new CXFA_FWLAdapterTimerMgr(m_pFormFillEnv);
-  return pAdapter;
+CFX_Timer::HandlerIface* CPDFXFA_Context::GetTimerHandler() const {
+  return form_fill_env_ ? form_fill_env_->GetTimerHandler() : nullptr;
+}
+
+cppgc::Heap* CPDFXFA_Context::GetGCHeap() const {
+  return gc_heap_.get();
+}
+
+bool CPDFXFA_Context::SaveDatasetsPackage(
+    const RetainPtr<IFX_SeekableStream>& pStream) {
+  return SavePackage(pStream, XFA_HASHCODE_Datasets);
+}
+
+bool CPDFXFA_Context::SaveFormPackage(
+    const RetainPtr<IFX_SeekableStream>& pStream) {
+  return SavePackage(pStream, XFA_HASHCODE_Form);
+}
+
+bool CPDFXFA_Context::SavePackage(const RetainPtr<IFX_SeekableStream>& pStream,
+                                  XFA_HashCode code) {
+  CXFA_FFDocView* pXFADocView = GetXFADocView();
+  if (!pXFADocView) {
+    return false;
+  }
+
+  CXFA_FFDoc* ffdoc = pXFADocView->GetDoc();
+  return ffdoc->SavePackage(ToNode(ffdoc->GetXFADoc()->GetXFAObject(code)),
+                            pStream);
+}
+
+void CPDFXFA_Context::SendPostSaveToXFADoc() {
+  if (!ContainsExtensionForm()) {
+    return;
+  }
+
+  CXFA_FFDocView* pXFADocView = GetXFADocView();
+  if (!pXFADocView) {
+    return;
+  }
+
+  CXFA_FFWidgetHandler* pWidgetHandler = pXFADocView->GetWidgetHandler();
+  CXFA_ReadyNodeIterator it(pXFADocView->GetRootSubform());
+  while (CXFA_Node* pNode = it.MoveToNext()) {
+    CXFA_EventParam preParam(XFA_EVENT_PostSave);
+    preParam.targeted_ = false;
+    pWidgetHandler->ProcessEvent(pNode, &preParam);
+  }
+  pXFADocView->UpdateDocView();
+  ClearChangeMark();
+}
+
+void CPDFXFA_Context::SendPreSaveToXFADoc(
+    std::vector<RetainPtr<IFX_SeekableStream>>* fileList) {
+  if (!ContainsExtensionForm()) {
+    return;
+  }
+
+  CXFA_FFDocView* pXFADocView = GetXFADocView();
+  if (!pXFADocView) {
+    return;
+  }
+
+  CXFA_FFWidgetHandler* pWidgetHandler = pXFADocView->GetWidgetHandler();
+  CXFA_ReadyNodeIterator it(pXFADocView->GetRootSubform());
+  while (CXFA_Node* pNode = it.MoveToNext()) {
+    CXFA_EventParam preParam(XFA_EVENT_PreSave);
+    preParam.targeted_ = false;
+    pWidgetHandler->ProcessEvent(pNode, &preParam);
+  }
+  pXFADocView->UpdateDocView();
+  return;
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,47 +7,52 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_NUMBER_H_
 #define CORE_FPDFAPI_PARSER_CPDF_NUMBER_H_
 
-#include <memory>
-
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/fx_number.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CPDF_Number : public CPDF_Object {
+class CPDF_Number final : public CPDF_Object {
  public:
-  CPDF_Number();
-  explicit CPDF_Number(int value);
-  explicit CPDF_Number(FX_FLOAT value);
-  explicit CPDF_Number(const CFX_ByteStringC& str);
-  ~CPDF_Number() override;
+  CONSTRUCT_VIA_MAKE_RETAIN;
 
   // CPDF_Object:
   Type GetType() const override;
-  std::unique_ptr<CPDF_Object> Clone() const override;
-  CFX_ByteString GetString() const override;
-  FX_FLOAT GetNumber() const override;
+  RetainPtr<CPDF_Object> Clone() const override;
+  ByteString GetString() const override;
+  float GetNumber() const override;
   int GetInteger() const override;
-  void SetString(const CFX_ByteString& str) override;
-  bool IsNumber() const override;
-  CPDF_Number* AsNumber() override;
-  const CPDF_Number* AsNumber() const override;
+  void SetString(const ByteString& str) override;
+  CPDF_Number* AsMutableNumber() override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
 
-  bool IsInteger() const { return m_bInteger; }
+  bool IsInteger() const { return number_.IsInteger(); }
 
- protected:
-  bool m_bInteger;
-  union {
-    int m_Integer;
-    FX_FLOAT m_Float;
-  };
+ private:
+  CPDF_Number();
+  explicit CPDF_Number(int value);
+  explicit CPDF_Number(float value);
+  explicit CPDF_Number(ByteStringView str);
+  ~CPDF_Number() override;
+
+  FX_Number number_;
 };
 
 inline CPDF_Number* ToNumber(CPDF_Object* obj) {
-  return obj ? obj->AsNumber() : nullptr;
+  return obj ? obj->AsMutableNumber() : nullptr;
 }
 
 inline const CPDF_Number* ToNumber(const CPDF_Object* obj) {
   return obj ? obj->AsNumber() : nullptr;
+}
+
+inline RetainPtr<CPDF_Number> ToNumber(RetainPtr<CPDF_Object> obj) {
+  return RetainPtr<CPDF_Number>(ToNumber(obj.Get()));
+}
+
+inline RetainPtr<const CPDF_Number> ToNumber(RetainPtr<const CPDF_Object> obj) {
+  return RetainPtr<const CPDF_Number>(ToNumber(obj.Get()));
 }
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_NUMBER_H_

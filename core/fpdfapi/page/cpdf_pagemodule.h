@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,14 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_PAGEMODULE_H_
 #define CORE_FPDFAPI_PAGE_CPDF_PAGEMODULE_H_
 
-#include "core/fpdfapi/font/font_int.h"
-#include "core/fpdfapi/page/cpdf_colorspace.h"
-#include "core/fpdfapi/page/pageint.h"
+namespace pdfium {
 
-class CPDF_Document;
+// Initializes the page module.
+void InitializePageModule();
 
-class CPDF_PageModule {
- public:
-  CPDF_PageModule();
-  ~CPDF_PageModule();
+// Tears down the page module.
+void DestroyPageModule();
 
-  CPDF_FontGlobals* GetFontGlobals();
-  CPDF_ColorSpace* GetStockCS(int family);
-  void ClearStockFont(CPDF_Document* pDoc);
-
- private:
-  CPDF_FontGlobals m_FontGlobals;
-  CPDF_DeviceCS m_StockGrayCS;
-  CPDF_DeviceCS m_StockRGBCS;
-  CPDF_DeviceCS m_StockCMYKCS;
-  CPDF_PatternCS m_StockPatternCS;
-};
+}  // namespace pdfium
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_PAGEMODULE_H_

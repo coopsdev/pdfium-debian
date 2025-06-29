@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,17 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_GENERALSTATE_H_
 #define CORE_FPDFAPI_PAGE_CPDF_GENERALSTATE_H_
 
-#include "core/fxcrt/fx_basic.h"
-#include "core/fxcrt/fx_coordinates.h"
-#include "core/fxge/fx_dib.h"
+#include <vector>
 
+#include "constants/transparency.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/shared_copy_on_write.h"
+#include "core/fxcrt/span.h"
+#include "core/fxge/dib/fx_dib.h"
+
+class CPDF_Dictionary;
 class CPDF_Object;
 class CPDF_TransferFunc;
 
@@ -20,30 +27,32 @@ class CPDF_GeneralState {
   CPDF_GeneralState(const CPDF_GeneralState& that);
   ~CPDF_GeneralState();
 
-  void Emplace() { m_Ref.Emplace(); }
-  explicit operator bool() const { return !!m_Ref; }
+  void Emplace() { ref_.Emplace(); }
+  bool HasRef() const { return !!ref_; }
 
-  void SetRenderIntent(const CFX_ByteString& ri);
+  void SetRenderIntent(const ByteString& ri);
 
-  int GetBlendType() const;
-  void SetBlendType(int type);
+  ByteString GetBlendMode() const;
+  BlendMode GetBlendType() const;
+  void SetBlendType(BlendMode type);
 
-  FX_FLOAT GetFillAlpha() const;
-  void SetFillAlpha(FX_FLOAT alpha);
+  float GetFillAlpha() const;
+  void SetFillAlpha(float alpha);
 
-  FX_FLOAT GetStrokeAlpha() const;
-  void SetStrokeAlpha(FX_FLOAT alpha);
+  float GetStrokeAlpha() const;
+  void SetStrokeAlpha(float alpha);
 
-  CPDF_Object* GetSoftMask() const;
-  void SetSoftMask(CPDF_Object* pObject);
+  RetainPtr<const CPDF_Dictionary> GetSoftMask() const;
+  RetainPtr<CPDF_Dictionary> GetMutableSoftMask();
+  void SetSoftMask(RetainPtr<CPDF_Dictionary> dict);
 
-  CPDF_Object* GetTR() const;
-  void SetTR(CPDF_Object* pObject);
+  RetainPtr<const CPDF_Object> GetTR() const;
+  void SetTR(RetainPtr<const CPDF_Object> pObject);
 
-  CPDF_TransferFunc* GetTransferFunc() const;
-  void SetTransferFunc(CPDF_TransferFunc* pFunc);
+  RetainPtr<CPDF_TransferFunc> GetTransferFunc() const;
+  void SetTransferFunc(RetainPtr<CPDF_TransferFunc> pFunc);
 
-  void SetBlendMode(const CFX_ByteString& mode);
+  void SetBlendMode(const ByteString& mode);
 
   const CFX_Matrix* GetSMaskMatrix() const;
   void SetSMaskMatrix(const CFX_Matrix& matrix);
@@ -57,12 +66,12 @@ class CPDF_GeneralState {
   int GetOPMode() const;
   void SetOPMode(int mode);
 
-  void SetBG(CPDF_Object* pObject);
-  void SetUCR(CPDF_Object* pObject);
-  void SetHT(CPDF_Object* pObject);
+  void SetBG(RetainPtr<const CPDF_Object> pObject);
+  void SetUCR(RetainPtr<const CPDF_Object> pObject);
+  void SetHT(RetainPtr<const CPDF_Object> pObject);
 
-  void SetFlatness(FX_FLOAT flatness);
-  void SetSmoothness(FX_FLOAT smoothness);
+  void SetFlatness(float flatness);
+  void SetSmoothness(float smoothness);
 
   bool GetStrokeAdjust() const;
   void SetStrokeAdjust(bool adjust);
@@ -70,40 +79,47 @@ class CPDF_GeneralState {
   void SetAlphaSource(bool source);
   void SetTextKnockout(bool knockout);
 
-  void SetMatrix(const CFX_Matrix& matrix);
-  CFX_Matrix* GetMutableMatrix();
+  void SetGraphicsResourceNames(std::vector<ByteString> names);
+  void AppendGraphicsResourceName(ByteString name);
+  pdfium::span<const ByteString> GetGraphicsResourceNames() const;
 
  private:
-  class StateData {
+  class StateData final : public Retainable {
    public:
+    CONSTRUCT_VIA_MAKE_RETAIN;
+
+    RetainPtr<StateData> Clone() const;
+
+    ByteString blend_mode_ = pdfium::transparency::kNormal;
+    BlendMode blend_type_ = BlendMode::kNormal;
+    RetainPtr<CPDF_Dictionary> soft_mask_;
+    CFX_Matrix smask_matrix_;
+    float stroke_alpha_ = 1.0f;
+    float fill_alpha_ = 1.0f;
+    RetainPtr<const CPDF_Object> tr_;
+    RetainPtr<CPDF_TransferFunc> transfer_func_;
+    int render_intent_ = 0;
+    bool stroke_adjust_ = false;
+    bool alpha_source_ = false;
+    bool text_knockout_ = false;
+    bool stroke_op_ = false;
+    bool fill_op_ = false;
+    int opmode_ = 0;
+    RetainPtr<const CPDF_Object> bg_;
+    RetainPtr<const CPDF_Object> ucr_;
+    RetainPtr<const CPDF_Object> ht_;
+    float flatness_ = 1.0f;
+    float smoothness_ = 0.0f;
+    // The resource names of the graphics states that apply to this object.
+    std::vector<ByteString> graphics_resource_names_;
+
+   private:
     StateData();
     StateData(const StateData& that);
-    ~StateData();
-
-    CFX_ByteString m_BlendMode;
-    int m_BlendType;
-    CPDF_Object* m_pSoftMask;
-    CFX_Matrix m_SMaskMatrix;
-    FX_FLOAT m_StrokeAlpha;
-    FX_FLOAT m_FillAlpha;
-    CPDF_Object* m_pTR;
-    CPDF_TransferFunc* m_pTransferFunc;
-    CFX_Matrix m_Matrix;
-    int m_RenderIntent;
-    bool m_StrokeAdjust;
-    bool m_AlphaSource;
-    bool m_TextKnockout;
-    bool m_StrokeOP;
-    bool m_FillOP;
-    int m_OPMode;
-    CPDF_Object* m_pBG;
-    CPDF_Object* m_pUCR;
-    CPDF_Object* m_pHT;
-    FX_FLOAT m_Flatness;
-    FX_FLOAT m_Smoothness;
+    ~StateData() override;
   };
 
-  CFX_SharedCopyOnWrite<StateData> m_Ref;
+  SharedCopyOnWrite<StateData> ref_;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_GENERALSTATE_H_

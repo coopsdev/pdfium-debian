@@ -1,10 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 #ifndef TESTING_GTEST_MAC_H_
 #define TESTING_GTEST_MAC_H_
-#include <gtest/internal/gtest-port.h>
+
 #include <gtest/gtest.h>
+#include <gtest/internal/gtest-port.h>
 #ifdef GTEST_OS_MAC
 #import <Foundation/Foundation.h>
 namespace testing {
@@ -59,4 +61,5 @@ GTEST_API_ AssertionResult CmpHelperNSNE(const char* expected_expression,
 #define ASSERT_NSNE(val1, val2) \
   ASSERT_PRED_FORMAT2(::testing::internal::CmpHelperNSNE, val1, val2)
 #endif  // GTEST_OS_MAC
+
 #endif  // TESTING_GTEST_MAC_H_

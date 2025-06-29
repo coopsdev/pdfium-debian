@@ -4,11 +4,12 @@
   /Type /Catalog
   /Pages 2 0 R
 >>
+endobj
 2 0 obj <<
   /Type /Pages
-  /MediaBox [ 0 0 200 200 ]
+  /MediaBox [0 0 200 200]
   /Count 1
-  /Kids [ 3 0 R ]
+  /Kids [3 0 R]
 >>
 endobj
 3 0 obj <<
@@ -36,6 +37,7 @@ endobj
 >>
 endobj
 6 0 obj <<
+  % Note this object deliberately does not use /Length 83.
 >>
 stream
 BT
@@ -52,15 +54,15 @@ xref
 0 7
 0000000000 65535 f 
 0000000015 00000 n 
-0000000061 00000 n 
-0000000154 00000 n 
-0000000296 00000 n 
-0000000374 00000 n 
-0000000450 00000 n 
+0000000068 00000 n 
+0000000157 00000 n 
+0000000299 00000 n 
+0000000377 00000 n 
+0000000453 00000 n 
 trailer <<
-  /Size 6
   /Root 1 0 R
+  /Size 7
 >>
 startxref
-571
+633
 %%EOF

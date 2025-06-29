@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,87 +7,78 @@
 #ifndef XFA_FWL_CFWL_BARCODE_H_
 #define XFA_FWL_CFWL_BARCODE_H_
 
+#include <stdint.h>
+
 #include <memory>
+#include <optional>
 
+#include "fxbarcode/BC_Library.h"
 #include "xfa/fwl/cfwl_edit.h"
-#include "xfa/fwl/cfwl_scrollbar.h"
-#include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fxbarcode/BC_Library.h"
 
-class CFWL_WidgetProperties;
 class CFX_Barcode;
-class CFWL_Widget;
 
-#define XFA_BCS_NeedUpdate 0x0001
-#define XFA_BCS_EncodeSuccess 0x0002
+namespace pdfium {
 
-enum FWL_BCDAttribute {
-  FWL_BCDATTRIBUTE_NONE = 0,
-  FWL_BCDATTRIBUTE_CHARENCODING = 1 << 0,
-  FWL_BCDATTRIBUTE_MODULEHEIGHT = 1 << 1,
-  FWL_BCDATTRIBUTE_MODULEWIDTH = 1 << 2,
-  FWL_BCDATTRIBUTE_DATALENGTH = 1 << 3,
-  FWL_BCDATTRIBUTE_CALCHECKSUM = 1 << 4,
-  FWL_BCDATTRIBUTE_PRINTCHECKSUM = 1 << 5,
-  FWL_BCDATTRIBUTE_TEXTLOCATION = 1 << 6,
-  FWL_BCDATTRIBUTE_WIDENARROWRATIO = 1 << 7,
-  FWL_BCDATTRIBUTE_STARTCHAR = 1 << 8,
-  FWL_BCDATTRIBUTE_ENDCHAR = 1 << 9,
-  FWL_BCDATTRIBUTE_VERSION = 1 << 10,
-  FWL_BCDATTRIBUTE_ECLEVEL = 1 << 11,
-  FWL_BCDATTRIBUTE_TRUNCATED = 1 << 12
-};
-
-class CFWL_Barcode : public CFWL_Edit {
+class CFWL_Barcode final : public CFWL_Edit {
  public:
-  explicit CFWL_Barcode(const CFWL_App* pApp);
+  CONSTRUCT_VIA_MAKE_GARBAGE_COLLECTED;
   ~CFWL_Barcode() override;
 
   // CFWL_Widget
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CFX_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CFGAS_GEGraphics* pGraphics,
+                  const CFX_Matrix& matrix) override;
   void OnProcessEvent(CFWL_Event* pEvent) override;
 
   // CFWL_Edit
-  void SetText(const CFX_WideString& wsText) override;
+  void SetText(const WideString& wsText) override;
+  void SetTextSkipNotify(const WideString& wsText) override;
 
   void SetType(BC_TYPE type);
   bool IsProtectedType() const;
 
-  void SetCharEncoding(BC_CHAR_ENCODING encoding);
   void SetModuleHeight(int32_t height);
   void SetModuleWidth(int32_t width);
   void SetDataLength(int32_t dataLength);
   void SetCalChecksum(bool calChecksum);
   void SetPrintChecksum(bool printChecksum);
   void SetTextLocation(BC_TEXT_LOC location);
-  void SetWideNarrowRatio(int32_t ratio);
-  void SetStartChar(FX_CHAR startChar);
-  void SetEndChar(FX_CHAR endChar);
+  void SetWideNarrowRatio(int8_t ratio);
+  void SetStartChar(char startChar);
+  void SetEndChar(char endChar);
   void SetErrorCorrectionLevel(int32_t ecLevel);
-  void SetTruncated(bool truncated);
 
  private:
+  enum class Status : uint8_t {
+    kNormal,
+    kNeedUpdate,
+    kEncodeSuccess,
+  };
+
+  explicit CFWL_Barcode(CFWL_App* pApp);
+
   void GenerateBarcodeImageCache();
   void CreateBarcodeEngine();
 
-  std::unique_ptr<CFX_Barcode> m_pBarcodeEngine;
-  uint32_t m_dwStatus;
-  BC_TYPE m_type;
-  BC_CHAR_ENCODING m_eCharEncoding;
-  int32_t m_nModuleHeight;
-  int32_t m_nModuleWidth;
-  int32_t m_nDataLength;
-  bool m_bCalChecksum;
-  bool m_bPrintChecksum;
-  BC_TEXT_LOC m_eTextLocation;
-  int32_t m_nWideNarrowRatio;
-  FX_CHAR m_cStartChar;
-  FX_CHAR m_cEndChar;
-  int32_t m_nECLevel;
-  bool m_bTruncated;
-  uint32_t m_dwAttributeMask;
+  BC_TYPE type_ = BC_TYPE::kUnknown;
+  Status status_ = Status::kNormal;
+  std::optional<BC_TEXT_LOC> text_location_;
+  std::optional<bool> cal_checksum_;
+  std::optional<bool> print_checksum_;
+  std::optional<char> start_char_;
+  std::optional<char> end_char_;
+  std::optional<int8_t> wide_narrow_ratio_;
+  std::optional<int32_t> module_height_;
+  std::optional<int32_t> module_width_;
+  std::optional<int32_t> data_length_;
+  std::optional<int32_t> eclevel_;
+  std::unique_ptr<CFX_Barcode> barcode_engine_;
 };
+
+}  // namespace pdfium
+
+// TODO(crbug.com/42271761): Remove.
+using pdfium::CFWL_Barcode;
 
 #endif  // XFA_FWL_CFWL_BARCODE_H_

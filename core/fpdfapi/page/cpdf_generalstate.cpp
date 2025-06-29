@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,278 +6,310 @@
 
 #include "core/fpdfapi/page/cpdf_generalstate.h"
 
-#include "core/fpdfapi/parser/cpdf_document.h"
-#include "core/fpdfapi/render/cpdf_dibsource.h"
-#include "core/fpdfapi/render/cpdf_docrenderdata.h"
-#include "core/fpdfapi/render/cpdf_transferfunc.h"
+#include <utility>
+
+#include "core/fpdfapi/page/cpdf_transferfunc.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_object.h"
 
 namespace {
 
-int RI_StringToId(const CFX_ByteString& ri) {
+int RI_StringToId(const ByteString& ri) {
   uint32_t id = ri.GetID();
-  if (id == FXBSTR_ID('A', 'b', 's', 'o'))
+  if (id == FXBSTR_ID('A', 'b', 's', 'o')) {
     return 1;
+  }
 
-  if (id == FXBSTR_ID('S', 'a', 't', 'u'))
+  if (id == FXBSTR_ID('S', 'a', 't', 'u')) {
     return 2;
+  }
 
-  if (id == FXBSTR_ID('P', 'e', 'r', 'c'))
+  if (id == FXBSTR_ID('P', 'e', 'r', 'c')) {
     return 3;
+  }
 
   return 0;
 }
 
-int GetBlendTypeInternal(const CFX_ByteString& mode) {
+BlendMode GetBlendTypeInternal(const ByteString& mode) {
   switch (mode.GetID()) {
     case FXBSTR_ID('N', 'o', 'r', 'm'):
     case FXBSTR_ID('C', 'o', 'm', 'p'):
-      return FXDIB_BLEND_NORMAL;
+      return BlendMode::kNormal;
     case FXBSTR_ID('M', 'u', 'l', 't'):
-      return FXDIB_BLEND_MULTIPLY;
+      return BlendMode::kMultiply;
     case FXBSTR_ID('S', 'c', 'r', 'e'):
-      return FXDIB_BLEND_SCREEN;
+      return BlendMode::kScreen;
     case FXBSTR_ID('O', 'v', 'e', 'r'):
-      return FXDIB_BLEND_OVERLAY;
+      return BlendMode::kOverlay;
     case FXBSTR_ID('D', 'a', 'r', 'k'):
-      return FXDIB_BLEND_DARKEN;
+      return BlendMode::kDarken;
     case FXBSTR_ID('L', 'i', 'g', 'h'):
-      return FXDIB_BLEND_LIGHTEN;
+      return BlendMode::kLighten;
     case FXBSTR_ID('C', 'o', 'l', 'o'):
-      if (mode.GetLength() == 10)
-        return FXDIB_BLEND_COLORDODGE;
-      if (mode.GetLength() == 9)
-        return FXDIB_BLEND_COLORBURN;
-      return FXDIB_BLEND_COLOR;
+      if (mode.GetLength() == 10) {
+        return BlendMode::kColorDodge;
+      }
+      if (mode.GetLength() == 9) {
+        return BlendMode::kColorBurn;
+      }
+      return BlendMode::kColor;
     case FXBSTR_ID('H', 'a', 'r', 'd'):
-      return FXDIB_BLEND_HARDLIGHT;
+      return BlendMode::kHardLight;
     case FXBSTR_ID('S', 'o', 'f', 't'):
-      return FXDIB_BLEND_SOFTLIGHT;
+      return BlendMode::kSoftLight;
     case FXBSTR_ID('D', 'i', 'f', 'f'):
-      return FXDIB_BLEND_DIFFERENCE;
+      return BlendMode::kDifference;
     case FXBSTR_ID('E', 'x', 'c', 'l'):
-      return FXDIB_BLEND_EXCLUSION;
+      return BlendMode::kExclusion;
     case FXBSTR_ID('H', 'u', 'e', 0):
-      return FXDIB_BLEND_HUE;
+      return BlendMode::kHue;
     case FXBSTR_ID('S', 'a', 't', 'u'):
-      return FXDIB_BLEND_SATURATION;
+      return BlendMode::kSaturation;
     case FXBSTR_ID('L', 'u', 'm', 'i'):
-      return FXDIB_BLEND_LUMINOSITY;
+      return BlendMode::kLuminosity;
   }
-  return FXDIB_BLEND_NORMAL;
+  return BlendMode::kNormal;
 }
 
 }  // namespace
 
-CPDF_GeneralState::CPDF_GeneralState() {}
+CPDF_GeneralState::CPDF_GeneralState() = default;
 
-CPDF_GeneralState::CPDF_GeneralState(const CPDF_GeneralState& that)
-    : m_Ref(that.m_Ref) {}
+CPDF_GeneralState::CPDF_GeneralState(const CPDF_GeneralState& that) = default;
 
-CPDF_GeneralState::~CPDF_GeneralState() {}
+CPDF_GeneralState::~CPDF_GeneralState() = default;
 
-void CPDF_GeneralState::SetRenderIntent(const CFX_ByteString& ri) {
-  m_Ref.GetPrivateCopy()->m_RenderIntent = RI_StringToId(ri);
+void CPDF_GeneralState::SetRenderIntent(const ByteString& ri) {
+  ref_.GetPrivateCopy()->render_intent_ = RI_StringToId(ri);
 }
 
-int CPDF_GeneralState::GetBlendType() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? pData->m_BlendType : FXDIB_BLEND_NORMAL;
+ByteString CPDF_GeneralState::GetBlendMode() const {
+  switch (GetBlendType()) {
+    case BlendMode::kNormal:
+      return ByteString(pdfium::transparency::kNormal);
+    case BlendMode::kMultiply:
+      return ByteString(pdfium::transparency::kMultiply);
+    case BlendMode::kScreen:
+      return ByteString(pdfium::transparency::kScreen);
+    case BlendMode::kOverlay:
+      return ByteString(pdfium::transparency::kOverlay);
+    case BlendMode::kDarken:
+      return ByteString(pdfium::transparency::kDarken);
+    case BlendMode::kLighten:
+      return ByteString(pdfium::transparency::kLighten);
+    case BlendMode::kColorDodge:
+      return ByteString(pdfium::transparency::kColorDodge);
+    case BlendMode::kColorBurn:
+      return ByteString(pdfium::transparency::kColorBurn);
+    case BlendMode::kHardLight:
+      return ByteString(pdfium::transparency::kHardLight);
+    case BlendMode::kSoftLight:
+      return ByteString(pdfium::transparency::kSoftLight);
+    case BlendMode::kDifference:
+      return ByteString(pdfium::transparency::kDifference);
+    case BlendMode::kExclusion:
+      return ByteString(pdfium::transparency::kExclusion);
+    case BlendMode::kHue:
+      return ByteString(pdfium::transparency::kHue);
+    case BlendMode::kSaturation:
+      return ByteString(pdfium::transparency::kSaturation);
+    case BlendMode::kColor:
+      return ByteString(pdfium::transparency::kColor);
+    case BlendMode::kLuminosity:
+      return ByteString(pdfium::transparency::kLuminosity);
+  }
+  return ByteString(pdfium::transparency::kNormal);
 }
 
-void CPDF_GeneralState::SetBlendType(int type) {
-  m_Ref.GetPrivateCopy()->m_BlendType = type;
+BlendMode CPDF_GeneralState::GetBlendType() const {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->blend_type_ : BlendMode::kNormal;
 }
 
-FX_FLOAT CPDF_GeneralState::GetFillAlpha() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? pData->m_FillAlpha : 1.0f;
+void CPDF_GeneralState::SetBlendType(BlendMode type) {
+  if (GetBlendType() != type) {
+    ref_.GetPrivateCopy()->blend_type_ = type;
+  }
 }
 
-void CPDF_GeneralState::SetFillAlpha(FX_FLOAT alpha) {
-  m_Ref.GetPrivateCopy()->m_FillAlpha = alpha;
+float CPDF_GeneralState::GetFillAlpha() const {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->fill_alpha_ : 1.0f;
 }
 
-FX_FLOAT CPDF_GeneralState::GetStrokeAlpha() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? pData->m_StrokeAlpha : 1.0f;
+void CPDF_GeneralState::SetFillAlpha(float alpha) {
+  if (GetFillAlpha() != alpha) {
+    ref_.GetPrivateCopy()->fill_alpha_ = alpha;
+  }
 }
 
-void CPDF_GeneralState::SetStrokeAlpha(FX_FLOAT alpha) {
-  m_Ref.GetPrivateCopy()->m_StrokeAlpha = alpha;
+float CPDF_GeneralState::GetStrokeAlpha() const {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->stroke_alpha_ : 1.0f;
 }
 
-CPDF_Object* CPDF_GeneralState::GetSoftMask() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? pData->m_pSoftMask : nullptr;
+void CPDF_GeneralState::SetStrokeAlpha(float alpha) {
+  if (GetStrokeAlpha() != alpha) {
+    ref_.GetPrivateCopy()->stroke_alpha_ = alpha;
+  }
 }
 
-void CPDF_GeneralState::SetSoftMask(CPDF_Object* pObject) {
-  m_Ref.GetPrivateCopy()->m_pSoftMask = pObject;
+RetainPtr<const CPDF_Dictionary> CPDF_GeneralState::GetSoftMask() const {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->soft_mask_ : nullptr;
 }
 
-CPDF_Object* CPDF_GeneralState::GetTR() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? pData->m_pTR : nullptr;
+RetainPtr<CPDF_Dictionary> CPDF_GeneralState::GetMutableSoftMask() {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->soft_mask_ : nullptr;
 }
 
-void CPDF_GeneralState::SetTR(CPDF_Object* pObject) {
-  m_Ref.GetPrivateCopy()->m_pTR = pObject;
+void CPDF_GeneralState::SetSoftMask(RetainPtr<CPDF_Dictionary> dict) {
+  ref_.GetPrivateCopy()->soft_mask_ = std::move(dict);
 }
 
-CPDF_TransferFunc* CPDF_GeneralState::GetTransferFunc() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? pData->m_pTransferFunc : nullptr;
+RetainPtr<const CPDF_Object> CPDF_GeneralState::GetTR() const {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->tr_ : nullptr;
 }
 
-void CPDF_GeneralState::SetTransferFunc(CPDF_TransferFunc* pFunc) {
-  m_Ref.GetPrivateCopy()->m_pTransferFunc = pFunc;
+void CPDF_GeneralState::SetTR(RetainPtr<const CPDF_Object> pObject) {
+  ref_.GetPrivateCopy()->tr_ = std::move(pObject);
 }
 
-void CPDF_GeneralState::SetBlendMode(const CFX_ByteString& mode) {
-  StateData* pData = m_Ref.GetPrivateCopy();
-  pData->m_BlendMode = mode;
-  pData->m_BlendType = GetBlendTypeInternal(mode);
+RetainPtr<CPDF_TransferFunc> CPDF_GeneralState::GetTransferFunc() const {
+  const StateData* pData = ref_.GetObject();
+  return pData ? pData->transfer_func_ : nullptr;
+}
+
+void CPDF_GeneralState::SetTransferFunc(RetainPtr<CPDF_TransferFunc> pFunc) {
+  ref_.GetPrivateCopy()->transfer_func_ = std::move(pFunc);
+}
+
+void CPDF_GeneralState::SetBlendMode(const ByteString& mode) {
+  StateData* pData = ref_.GetPrivateCopy();
+  pData->blend_mode_ = mode;
+  pData->blend_type_ = GetBlendTypeInternal(mode);
 }
 
 const CFX_Matrix* CPDF_GeneralState::GetSMaskMatrix() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData ? &pData->m_SMaskMatrix : nullptr;
+  const StateData* pData = ref_.GetObject();
+  return pData ? &pData->smask_matrix_ : nullptr;
 }
 
 void CPDF_GeneralState::SetSMaskMatrix(const CFX_Matrix& matrix) {
-  m_Ref.GetPrivateCopy()->m_SMaskMatrix = matrix;
+  ref_.GetPrivateCopy()->smask_matrix_ = matrix;
 }
 
 bool CPDF_GeneralState::GetFillOP() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData && pData->m_FillOP;
+  const StateData* pData = ref_.GetObject();
+  return pData && pData->fill_op_;
 }
 
 void CPDF_GeneralState::SetFillOP(bool op) {
-  m_Ref.GetPrivateCopy()->m_FillOP = op;
+  ref_.GetPrivateCopy()->fill_op_ = op;
 }
 
 void CPDF_GeneralState::SetStrokeOP(bool op) {
-  m_Ref.GetPrivateCopy()->m_StrokeOP = op;
+  ref_.GetPrivateCopy()->stroke_op_ = op;
 }
 
 bool CPDF_GeneralState::GetStrokeOP() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData && pData->m_StrokeOP;
+  const StateData* pData = ref_.GetObject();
+  return pData && pData->stroke_op_;
 }
 
 int CPDF_GeneralState::GetOPMode() const {
-  return m_Ref.GetObject()->m_OPMode;
+  return ref_.GetObject()->opmode_;
 }
 
 void CPDF_GeneralState::SetOPMode(int mode) {
-  m_Ref.GetPrivateCopy()->m_OPMode = mode;
+  ref_.GetPrivateCopy()->opmode_ = mode;
 }
 
-void CPDF_GeneralState::SetBG(CPDF_Object* pObject) {
-  m_Ref.GetPrivateCopy()->m_pBG = pObject;
+void CPDF_GeneralState::SetBG(RetainPtr<const CPDF_Object> pObject) {
+  ref_.GetPrivateCopy()->bg_ = std::move(pObject);
 }
 
-void CPDF_GeneralState::SetUCR(CPDF_Object* pObject) {
-  m_Ref.GetPrivateCopy()->m_pUCR = pObject;
+void CPDF_GeneralState::SetUCR(RetainPtr<const CPDF_Object> pObject) {
+  ref_.GetPrivateCopy()->ucr_ = std::move(pObject);
 }
 
-void CPDF_GeneralState::SetHT(CPDF_Object* pObject) {
-  m_Ref.GetPrivateCopy()->m_pHT = pObject;
+void CPDF_GeneralState::SetHT(RetainPtr<const CPDF_Object> pObject) {
+  ref_.GetPrivateCopy()->ht_ = std::move(pObject);
 }
 
-void CPDF_GeneralState::SetFlatness(FX_FLOAT flatness) {
-  m_Ref.GetPrivateCopy()->m_Flatness = flatness;
+void CPDF_GeneralState::SetFlatness(float flatness) {
+  ref_.GetPrivateCopy()->flatness_ = flatness;
 }
 
-void CPDF_GeneralState::SetSmoothness(FX_FLOAT smoothness) {
-  m_Ref.GetPrivateCopy()->m_Smoothness = smoothness;
+void CPDF_GeneralState::SetSmoothness(float smoothness) {
+  ref_.GetPrivateCopy()->smoothness_ = smoothness;
 }
 
 bool CPDF_GeneralState::GetStrokeAdjust() const {
-  const StateData* pData = m_Ref.GetObject();
-  return pData && pData->m_StrokeAdjust;
+  const StateData* pData = ref_.GetObject();
+  return pData && pData->stroke_adjust_;
 }
 
 void CPDF_GeneralState::SetStrokeAdjust(bool adjust) {
-  m_Ref.GetPrivateCopy()->m_StrokeAdjust = adjust;
+  ref_.GetPrivateCopy()->stroke_adjust_ = adjust;
 }
 
 void CPDF_GeneralState::SetAlphaSource(bool source) {
-  m_Ref.GetPrivateCopy()->m_AlphaSource = source;
+  ref_.GetPrivateCopy()->alpha_source_ = source;
 }
 
 void CPDF_GeneralState::SetTextKnockout(bool knockout) {
-  m_Ref.GetPrivateCopy()->m_TextKnockout = knockout;
+  ref_.GetPrivateCopy()->text_knockout_ = knockout;
 }
 
-void CPDF_GeneralState::SetMatrix(const CFX_Matrix& matrix) {
-  m_Ref.GetPrivateCopy()->m_Matrix = matrix;
+void CPDF_GeneralState::SetGraphicsResourceNames(
+    std::vector<ByteString> names) {
+  ref_.GetPrivateCopy()->graphics_resource_names_ = std::move(names);
 }
 
-CFX_Matrix* CPDF_GeneralState::GetMutableMatrix() {
-  return &m_Ref.GetPrivateCopy()->m_Matrix;
+void CPDF_GeneralState::AppendGraphicsResourceName(ByteString name) {
+  ref_.GetPrivateCopy()->graphics_resource_names_.push_back(std::move(name));
 }
 
-CPDF_GeneralState::StateData::StateData()
-    : m_BlendMode("Normal"),
-      m_BlendType(0),
-      m_pSoftMask(nullptr),
-      m_StrokeAlpha(1.0),
-      m_FillAlpha(1.0f),
-      m_pTR(nullptr),
-      m_pTransferFunc(nullptr),
-      m_RenderIntent(0),
-      m_StrokeAdjust(false),
-      m_AlphaSource(false),
-      m_TextKnockout(false),
-      m_StrokeOP(false),
-      m_FillOP(false),
-      m_OPMode(0),
-      m_pBG(nullptr),
-      m_pUCR(nullptr),
-      m_pHT(nullptr),
-      m_Flatness(1.0f),
-      m_Smoothness(0.0f) {
-  m_SMaskMatrix.SetIdentity();
-  m_Matrix.SetIdentity();
+pdfium::span<const ByteString> CPDF_GeneralState::GetGraphicsResourceNames()
+    const {
+  const StateData* data = ref_.GetObject();
+  if (!data) {
+    return {};
+  }
+  return data->graphics_resource_names_;
 }
+
+CPDF_GeneralState::StateData::StateData() = default;
 
 CPDF_GeneralState::StateData::StateData(const StateData& that)
-    : m_BlendMode(that.m_BlendMode),
-      m_BlendType(that.m_BlendType),
-      m_pSoftMask(that.m_pSoftMask),
-      m_StrokeAlpha(that.m_StrokeAlpha),
-      m_FillAlpha(that.m_FillAlpha),
-      m_pTR(that.m_pTR),
-      m_pTransferFunc(that.m_pTransferFunc),
-      m_RenderIntent(that.m_RenderIntent),
-      m_StrokeAdjust(that.m_StrokeAdjust),
-      m_AlphaSource(that.m_AlphaSource),
-      m_TextKnockout(that.m_TextKnockout),
-      m_StrokeOP(that.m_StrokeOP),
-      m_FillOP(that.m_FillOP),
-      m_OPMode(that.m_OPMode),
-      m_pBG(that.m_pBG),
-      m_pUCR(that.m_pUCR),
-      m_pHT(that.m_pHT),
-      m_Flatness(that.m_Flatness),
-      m_Smoothness(that.m_Smoothness) {
-  m_Matrix = that.m_Matrix;
-  m_SMaskMatrix = that.m_SMaskMatrix;
+    : blend_mode_(that.blend_mode_),
+      blend_type_(that.blend_type_),
+      soft_mask_(that.soft_mask_),
+      smask_matrix_(that.smask_matrix_),
+      stroke_alpha_(that.stroke_alpha_),
+      fill_alpha_(that.fill_alpha_),
+      tr_(that.tr_),
+      transfer_func_(that.transfer_func_),
+      render_intent_(that.render_intent_),
+      stroke_adjust_(that.stroke_adjust_),
+      alpha_source_(that.alpha_source_),
+      text_knockout_(that.text_knockout_),
+      stroke_op_(that.stroke_op_),
+      fill_op_(that.fill_op_),
+      opmode_(that.opmode_),
+      bg_(that.bg_),
+      ucr_(that.ucr_),
+      ht_(that.ht_),
+      flatness_(that.flatness_),
+      smoothness_(that.smoothness_) {}
 
-  if (that.m_pTransferFunc && that.m_pTransferFunc->m_pPDFDoc) {
-    CPDF_DocRenderData* pDocCache =
-        that.m_pTransferFunc->m_pPDFDoc->GetRenderData();
-    if (pDocCache)
-      m_pTransferFunc = pDocCache->GetTransferFunc(m_pTR);
-  }
-}
+CPDF_GeneralState::StateData::~StateData() = default;
 
-CPDF_GeneralState::StateData::~StateData() {
-  if (m_pTransferFunc && m_pTransferFunc->m_pPDFDoc) {
-    CPDF_DocRenderData* pDocCache = m_pTransferFunc->m_pPDFDoc->GetRenderData();
-    if (pDocCache)
-      pDocCache->ReleaseTransferFunc(m_pTR);
-  }
+RetainPtr<CPDF_GeneralState::StateData> CPDF_GeneralState::StateData::Clone()
+    const {
+  return pdfium::MakeRetain<CPDF_GeneralState::StateData>(*this);
 }

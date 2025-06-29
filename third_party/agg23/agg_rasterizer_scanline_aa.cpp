@@ -48,7 +48,9 @@
 //----------------------------------------------------------------------------
 #include <limits.h>
 #include "agg_rasterizer_scanline_aa.h"
-#include "third_party/base/numerics/safe_math.h"
+#include "core/fxcrt/numerics/safe_math.h"
+namespace pdfium
+{
 namespace agg
 {
 AGG_INLINE void cell_aa::set_cover(int c, int a)
@@ -118,13 +120,13 @@ void outline_aa::allocate_block()
         if(m_num_blocks >= m_max_blocks) {
             cell_aa** new_cells = FX_Alloc( cell_aa*, m_max_blocks + cell_block_pool);
             if(m_cells) {
-                FXSYS_memcpy(new_cells, m_cells, m_max_blocks * sizeof(cell_aa*));
-                FX_Free(m_cells);
+              memcpy(new_cells, m_cells, m_max_blocks * sizeof(cell_aa*));
+              FX_Free(m_cells);
             }
             m_cells = new_cells;
             m_max_blocks += cell_block_pool;
         }
-        m_cells[m_num_blocks++] = FX_Alloc(cell_aa, cell_block_size);
+        m_cells[m_num_blocks++] = FX_AllocUninit(cell_aa, cell_block_size);
     }
     m_cur_cell_ptr = m_cells[m_cur_block++];
 }
@@ -225,10 +227,27 @@ AGG_INLINE void outline_aa::render_hline(int ey, int x1, int y1, int x2, int y2)
 void outline_aa::render_line(int x1, int y1, int x2, int y2)
 {
     enum dx_limit_e { dx_limit = 16384 << poly_base_shift };
-    int dx = x2 - x1;
+    pdfium::CheckedNumeric<int> safe_dx = x2;
+    safe_dx -= x1;
+    if (!safe_dx.IsValid())
+        return;
+
+    int dx = safe_dx.ValueOrDie();
     if(dx >= dx_limit || dx <= -dx_limit) {
-        int cx = (x1 + x2) >> 1;
-        int cy = (y1 + y2) >> 1;
+        pdfium::CheckedNumeric<int> safe_cx = x1;
+        safe_cx += x2;
+        safe_cx /= 2;
+        if (!safe_cx.IsValid())
+            return;
+
+        pdfium::CheckedNumeric<int> safe_cy = y1;
+        safe_cy += y2;
+        safe_cy /= 2;
+        if (!safe_cy.IsValid())
+            return;
+
+        int cx = safe_cx.ValueOrDie();
+        int cy = safe_cy.ValueOrDie();
         render_line(x1, y1, cx, cy);
         render_line(cx, cy, x2, y2);
     }
@@ -269,7 +288,7 @@ void outline_aa::render_line(int x1, int y1, int x2, int y2)
         m_cur_cell.add_cover(delta, two_fx * delta);
         return;
     }
-    pdfium::base::CheckedNumeric<int> safeP = poly_base_size - fy1;
+    pdfium::CheckedNumeric<int> safeP = poly_base_size - fy1;
     safeP *= dx;
     if (!safeP.IsValid())
       return;
@@ -495,4 +514,24 @@ void outline_aa::sort_cells()
     }
     m_sorted = true;
 }
+// static
+int rasterizer_scanline_aa::calculate_area(int cover, int shift)
+{
+    unsigned int result = cover;
+    result <<= shift;
+    return result;
 }
+// static
+bool rasterizer_scanline_aa::safe_add(int* op1, int op2)
+{
+    pdfium::CheckedNumeric<int> safeOp1 = *op1;
+    safeOp1 += op2;
+    if(!safeOp1.IsValid()) {
+        return false;
+    }
+
+    *op1 = safeOp1.ValueOrDie();
+    return true;
+}
+}
+}  // namespace pdfium

@@ -22,6 +22,8 @@
 #include "agg_basics.h"
 #include "agg_vcgen_stroke.h"
 #include "agg_conv_adaptor_vcgen.h"
+namespace pdfium
+{
 namespace agg
 {
 template<class VertexSource, class Markers = null_markers>
@@ -57,47 +59,47 @@ struct conv_stroke :
     {
         return base_type::generator().inner_join();
     }
-    void width(FX_FLOAT w)
+    void width(float w)
     {
         base_type::generator().width(w);
     }
-    void miter_limit(FX_FLOAT ml)
+    void miter_limit(float ml)
     {
         base_type::generator().miter_limit(ml);
     }
-    void miter_limit_theta(FX_FLOAT t)
+    void miter_limit_theta(float t)
     {
         base_type::generator().miter_limit_theta(t);
     }
-    void inner_miter_limit(FX_FLOAT ml)
+    void inner_miter_limit(float ml)
     {
         base_type::generator().inner_miter_limit(ml);
     }
-    void approximation_scale(FX_FLOAT as)
+    void approximation_scale(float as)
     {
         base_type::generator().approximation_scale(as);
     }
-    FX_FLOAT width() const
+    float width() const
     {
         return base_type::generator().width();
     }
-    FX_FLOAT miter_limit() const
+    float miter_limit() const
     {
         return base_type::generator().miter_limit();
     }
-    FX_FLOAT inner_miter_limit() const
+    float inner_miter_limit() const
     {
         return base_type::generator().inner_miter_limit();
     }
-    FX_FLOAT approximation_scale() const
+    float approximation_scale() const
     {
         return base_type::generator().approximation_scale();
     }
-    void shorten(FX_FLOAT s)
+    void shorten(float s)
     {
         base_type::generator().shorten(s);
     }
-    FX_FLOAT shorten() const
+    float shorten() const
     {
         return base_type::generator().shorten();
     }
@@ -107,4 +109,5 @@ private:
     operator = (const conv_stroke<VertexSource, Markers>&);
 };
 }
+}  // namespace pdfium
 #endif

@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,97 +7,89 @@
 #ifndef CORE_FPDFAPI_EDIT_CPDF_CREATOR_H_
 #define CORE_FPDFAPI_EDIT_CPDF_CREATOR_H_
 
+#include <map>
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/fx_stream.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Array;
 class CPDF_CryptoHandler;
+class CPDF_SecurityHandler;
 class CPDF_Dictionary;
 class CPDF_Document;
 class CPDF_Object;
 class CPDF_Parser;
-class CPDF_XRefStream;
 
 #define FPDFCREATE_INCREMENTAL 1
 #define FPDFCREATE_NO_ORIGINAL 2
-#define FPDFCREATE_PROGRESSIVE 4
-#define FPDFCREATE_OBJECTSTREAM 8
-
-CFX_ByteTextBuf& operator<<(CFX_ByteTextBuf& buf, const CPDF_Object* pObj);
 
 class CPDF_Creator {
  public:
-  explicit CPDF_Creator(CPDF_Document* pDoc);
+  CPDF_Creator(CPDF_Document* pDoc,
+               RetainPtr<IFX_RetainableWriteStream> archive);
   ~CPDF_Creator();
 
   void RemoveSecurity();
-  bool Create(const CFX_RetainPtr<IFX_WriteStream>& pFile, uint32_t flags = 0);
-  int32_t Continue(IFX_Pause* pPause = nullptr);
-  bool SetFileVersion(int32_t fileVersion = 17);
+  bool Create(uint32_t flags);
+  bool SetFileVersion(int32_t fileVersion);
 
  private:
-  friend class CPDF_ObjectStream;
-  friend class CPDF_XRefStream;
+  enum class Stage {
+    kInvalid = -1,
+    kInit0 = 0,
+    kWriteHeader10 = 10,
+    kWriteIncremental15 = 15,
+    kInitWriteObjs20 = 20,
+    kWriteOldObjs21 = 21,
+    kInitWriteNewObjs25 = 25,
+    kWriteNewObjs26 = 26,
+    kWriteEncryptDict27 = 27,
+    kInitWriteXRefs80 = 80,
+    kWriteXrefsNotIncremental81 = 81,
+    kWriteXrefsIncremental82 = 82,
+    kWriteTrailerAndFinish90 = 90,
+    kComplete100 = 100,
+  };
 
-  bool Create(uint32_t flags);
-  void ResetStandardSecurity();
+  bool Continue();
   void Clear();
 
-  void InitOldObjNumOffsets();
   void InitNewObjNumOffsets();
-  void InitID(bool bDefault = true);
+  void InitID();
 
-  void AppendNewObjNum(uint32_t objbum);
-  int32_t AppendObjectNumberToXRef(uint32_t objnum);
+  CPDF_Creator::Stage WriteDoc_Stage1();
+  CPDF_Creator::Stage WriteDoc_Stage2();
+  CPDF_Creator::Stage WriteDoc_Stage3();
+  CPDF_Creator::Stage WriteDoc_Stage4();
 
-  int32_t WriteDoc_Stage1(IFX_Pause* pPause);
-  int32_t WriteDoc_Stage2(IFX_Pause* pPause);
-  int32_t WriteDoc_Stage3(IFX_Pause* pPause);
-  int32_t WriteDoc_Stage4(IFX_Pause* pPause);
+  bool WriteOldIndirectObject(uint32_t objnum);
+  bool WriteOldObjs();
+  bool WriteNewObjs();
+  bool WriteIndirectObj(uint32_t objnum, const CPDF_Object* pObj);
 
-  int32_t WriteOldIndirectObject(uint32_t objnum);
-  int32_t WriteOldObjs(IFX_Pause* pPause);
-  int32_t WriteNewObjs(bool bIncremental, IFX_Pause* pPause);
-  int32_t WriteIndirectObj(const CPDF_Object* pObj);
-  int32_t WriteDirectObj(uint32_t objnum,
-                         const CPDF_Object* pObj,
-                         bool bEncrypt = true);
-  int32_t WriteIndirectObjectToStream(const CPDF_Object* pObj);
-  int32_t WriteIndirectObj(uint32_t objnum, const CPDF_Object* pObj);
-  int32_t WriteIndirectObjectToStream(uint32_t objnum,
-                                      const uint8_t* pBuffer,
-                                      uint32_t dwSize);
+  CPDF_CryptoHandler* GetCryptoHandler();
 
-  int32_t WriteStream(const CPDF_Object* pStream,
-                      uint32_t objnum,
-                      CPDF_CryptoHandler* pCrypto);
-
-  CPDF_Document* const m_pDocument;
-  CPDF_Parser* const m_pParser;
-  bool m_bSecurityChanged;
-  CPDF_Dictionary* m_pEncryptDict;
-  uint32_t m_dwEncryptObjNum;
-  bool m_bEncryptCloned;
-  CPDF_CryptoHandler* m_pCryptoHandler;
-  // Whether this owns the crypto handler |m_pCryptoHandler|.
-  bool m_bLocalCryptoHandler;
-  CPDF_Object* m_pMetadata;
-  std::unique_ptr<CPDF_XRefStream> m_pXRefStream;
-  int32_t m_ObjectStreamSize;
-  uint32_t m_dwLastObjNum;
-  CFX_FileBufferArchive m_File;
-  FX_FILESIZE m_Offset;
-  int32_t m_iStage;
-  uint32_t m_dwFlags;
-  FX_POSITION m_Pos;
-  FX_FILESIZE m_XrefStart;
-  CFX_FileSizeListArray m_ObjectOffset;
-  std::vector<uint32_t> m_NewObjNumArray;  // Sorted, ascending.
-  std::unique_ptr<CPDF_Array> m_pIDArray;
-  int32_t m_FileVersion;
+  UnownedPtr<CPDF_Document> const document_;
+  UnownedPtr<CPDF_Parser> const parser_;
+  RetainPtr<const CPDF_Dictionary> encrypt_dict_;
+  RetainPtr<CPDF_Dictionary> new_encrypt_dict_;
+  RetainPtr<CPDF_SecurityHandler> security_handler_;
+  uint32_t last_obj_num_;
+  std::unique_ptr<IFX_ArchiveStream> archive_;
+  FX_FILESIZE saved_offset_ = 0;
+  Stage stage_ = Stage::kInvalid;
+  uint32_t cur_obj_num_ = 0;
+  FX_FILESIZE xref_start_ = 0;
+  std::map<uint32_t, FX_FILESIZE> object_offsets_;
+  std::vector<uint32_t> new_obj_num_array_;  // Sorted, ascending.
+  RetainPtr<CPDF_Array> id_array_;
+  int32_t file_version_ = 0;
+  bool security_changed_ = false;
+  bool is_incremental_ = false;
+  bool is_original_ = false;
 };
 
 #endif  // CORE_FPDFAPI_EDIT_CPDF_CREATOR_H_

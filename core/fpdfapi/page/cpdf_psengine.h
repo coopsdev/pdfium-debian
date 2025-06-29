@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2016 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,20 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_PSENGINE_H_
 #define CORE_FPDFAPI_PAGE_CPDF_PSENGINE_H_
 
+#include <stdint.h>
+
+#include <array>
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/span.h"
 
 class CPDF_PSEngine;
-class CPDF_PSOP;
+class CPDF_PSProc;
 class CPDF_SimpleParser;
 
-enum PDF_PSOP {
+enum PDF_PSOP : uint8_t {
   PSOP_ADD,
   PSOP_SUB,
   PSOP_MUL,
@@ -63,7 +67,23 @@ enum PDF_PSOP {
   PSOP_CONST
 };
 
-constexpr uint32_t PSENGINE_STACKSIZE = 100;
+class CPDF_PSOP {
+ public:
+  CPDF_PSOP();
+  explicit CPDF_PSOP(PDF_PSOP op);
+  explicit CPDF_PSOP(float value);
+  ~CPDF_PSOP();
+
+  bool Parse(CPDF_SimpleParser* parser, int depth);
+  void Execute(CPDF_PSEngine* pEngine);
+  float GetFloatValue() const;
+  PDF_PSOP GetOp() const { return op_; }
+
+ private:
+  const PDF_PSOP op_;
+  const float value_;
+  std::unique_ptr<CPDF_PSProc> proc_;
+};
 
 class CPDF_PSProc {
  public:
@@ -73,9 +93,18 @@ class CPDF_PSProc {
   bool Parse(CPDF_SimpleParser* parser, int depth);
   bool Execute(CPDF_PSEngine* pEngine);
 
+  // These methods are exposed for testing.
+  void AddOperatorForTesting(ByteStringView word);
+  const std::unique_ptr<CPDF_PSOP>& last_operator() {
+    return operators_.back();
+  }
+
  private:
-  static const int kMaxDepth = 128;
-  std::vector<std::unique_ptr<CPDF_PSOP>> m_Operators;
+  static constexpr int kMaxDepth = 128;
+
+  void AddOperator(ByteStringView word);
+
+  std::vector<std::unique_ptr<CPDF_PSOP>> operators_;
 };
 
 class CPDF_PSEngine {
@@ -83,18 +112,21 @@ class CPDF_PSEngine {
   CPDF_PSEngine();
   ~CPDF_PSEngine();
 
-  bool Parse(const FX_CHAR* str, int size);
+  bool Parse(pdfium::span<const uint8_t> input);
   bool Execute();
   bool DoOperator(PDF_PSOP op);
-  void Reset() { m_StackCount = 0; }
-  void Push(FX_FLOAT value);
-  FX_FLOAT Pop();
-  uint32_t GetStackSize() const { return m_StackCount; }
+  void Reset() { stack_count_ = 0; }
+  void Push(float value);
+  float Pop();
+  int PopInt();
+  uint32_t GetStackSize() const { return stack_count_; }
 
  private:
-  FX_FLOAT m_Stack[PSENGINE_STACKSIZE];
-  uint32_t m_StackCount;
-  CPDF_PSProc m_MainProc;
+  static constexpr uint32_t kPSEngineStackSize = 100;
+
+  uint32_t stack_count_ = 0;
+  CPDF_PSProc main_proc_;
+  std::array<float, kPSEngineStackSize> stack_ = {};
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_PSENGINE_H_

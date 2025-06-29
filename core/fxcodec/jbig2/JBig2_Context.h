@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,104 +7,101 @@
 #ifndef CORE_FXCODEC_JBIG2_JBIG2_CONTEXT_H_
 #define CORE_FXCODEC_JBIG2_JBIG2_CONTEXT_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <list>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcodec/fx_codec_def.h"
+#include "core/fxcodec/jbig2/JBig2_DocumentContext.h"
 #include "core/fxcodec/jbig2/JBig2_Page.h"
 #include "core/fxcodec/jbig2/JBig2_Segment.h"
+#include "core/fxcrt/span.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CJBig2_ArithDecoder;
 class CJBig2_GRDProc;
-class CPDF_StreamAcc;
-class IFX_Pause;
+class PauseIndicatorIface;
 
-// Cache is keyed by the ObjNum of a stream and an index within the stream.
-using CJBig2_CacheKey = std::pair<uint32_t, uint32_t>;
-using CJBig2_CachePair =
-    std::pair<CJBig2_CacheKey, std::unique_ptr<CJBig2_SymbolDict>>;
-
-#define JBIG2_SUCCESS 0
-#define JBIG2_FAILED -1
-#define JBIG2_ERROR_TOO_SHORT -2
-#define JBIG2_ERROR_FATAL -3
-#define JBIG2_END_OF_PAGE 2
-#define JBIG2_END_OF_FILE 3
-#define JBIG2_ERROR_FILE_FORMAT -4
-#define JBIG2_ERROR_STREAM_TYPE -5
-#define JBIG2_ERROR_LIMIT -6
 #define JBIG2_MIN_SEGMENT_SIZE 11
+
+enum class JBig2_Result { kSuccess, kFailure, kEndReached };
 
 class CJBig2_Context {
  public:
-  CJBig2_Context(CPDF_StreamAcc* pGlobalStream,
-                 CPDF_StreamAcc* pSrcStream,
-                 std::list<CJBig2_CachePair>* pSymbolDictCache,
-                 IFX_Pause* pPause,
-                 bool bIsGlobal);
+  static std::unique_ptr<CJBig2_Context> Create(
+      pdfium::span<const uint8_t> pGlobalSpan,
+      uint64_t global_key,
+      pdfium::span<const uint8_t> pSrcSpan,
+      uint64_t src_key,
+      std::list<CJBig2_CachePair>* pSymbolDictCache);
+
   ~CJBig2_Context();
 
-  int32_t getFirstPage(uint8_t* pBuf,
-                       int32_t width,
-                       int32_t height,
-                       int32_t stride,
-                       IFX_Pause* pPause);
+  static bool HuffmanAssignCode(pdfium::span<JBig2HuffmanCode> symcodes);
 
-  int32_t Continue(IFX_Pause* pPause);
-  FXCODEC_STATUS GetProcessingStatus() { return m_ProcessingStatus; }
+  bool GetFirstPage(pdfium::span<uint8_t> pBuf,
+                    int32_t width,
+                    int32_t height,
+                    int32_t stride,
+                    PauseIndicatorIface* pPause);
+
+  bool Continue(PauseIndicatorIface* pPause);
+  FXCODEC_STATUS GetProcessingStatus() const { return processing_status_; }
 
  private:
-  int32_t decode_SquentialOrgnazation(IFX_Pause* pPause);
-  int32_t decode_EmbedOrgnazation(IFX_Pause* pPause);
-  int32_t decode_RandomOrgnazation_FirstPage(IFX_Pause* pPause);
-  int32_t decode_RandomOrgnazation(IFX_Pause* pPause);
+  CJBig2_Context(pdfium::span<const uint8_t> pSrcSpan,
+                 uint64_t src_key,
+                 std::list<CJBig2_CachePair>* pSymbolDictCache,
+                 bool bIsGlobal);
 
-  CJBig2_Segment* findSegmentByNumber(uint32_t dwNumber);
-  CJBig2_Segment* findReferredSegmentByTypeAndIndex(CJBig2_Segment* pSegment,
-                                                    uint8_t cType,
-                                                    int32_t nIndex);
+  JBig2_Result DecodeSequential(PauseIndicatorIface* pPause);
 
-  int32_t parseSegmentHeader(CJBig2_Segment* pSegment);
-  int32_t parseSegmentData(CJBig2_Segment* pSegment, IFX_Pause* pPause);
-  int32_t ProcessingParseSegmentData(CJBig2_Segment* pSegment,
-                                     IFX_Pause* pPause);
-  int32_t parseSymbolDict(CJBig2_Segment* pSegment, IFX_Pause* pPause);
-  int32_t parseTextRegion(CJBig2_Segment* pSegment);
-  int32_t parsePatternDict(CJBig2_Segment* pSegment, IFX_Pause* pPause);
-  int32_t parseHalftoneRegion(CJBig2_Segment* pSegment, IFX_Pause* pPause);
-  int32_t parseGenericRegion(CJBig2_Segment* pSegment, IFX_Pause* pPause);
-  int32_t parseGenericRefinementRegion(CJBig2_Segment* pSegment);
-  int32_t parseTable(CJBig2_Segment* pSegment);
-  int32_t parseRegionInfo(JBig2RegionInfo* pRI);
+  CJBig2_Segment* FindSegmentByNumber(uint32_t dwNumber);
+  CJBig2_Segment* FindReferredTableSegmentByIndex(CJBig2_Segment* pSegment,
+                                                  int32_t nIndex);
 
-  JBig2HuffmanCode* decodeSymbolIDHuffmanTable(CJBig2_BitStream* pStream,
-                                               uint32_t SBNUMSYMS);
+  JBig2_Result ParseSegmentHeader(CJBig2_Segment* pSegment);
+  JBig2_Result ParseSegmentData(CJBig2_Segment* pSegment,
+                                PauseIndicatorIface* pPause);
+  JBig2_Result ProcessingParseSegmentData(CJBig2_Segment* pSegment,
+                                          PauseIndicatorIface* pPause);
+  JBig2_Result ParseSymbolDict(CJBig2_Segment* pSegment);
+  JBig2_Result ParseTextRegion(CJBig2_Segment* pSegment);
+  JBig2_Result ParsePatternDict(CJBig2_Segment* pSegment,
+                                PauseIndicatorIface* pPause);
+  JBig2_Result ParseHalftoneRegion(CJBig2_Segment* pSegment,
+                                   PauseIndicatorIface* pPause);
+  JBig2_Result ParseGenericRegion(CJBig2_Segment* pSegment,
+                                  PauseIndicatorIface* pPause);
+  JBig2_Result ParseGenericRefinementRegion(CJBig2_Segment* pSegment);
+  JBig2_Result ParseTable(CJBig2_Segment* pSegment);
+  JBig2_Result ParseRegionInfo(JBig2RegionInfo* pRI);
 
-  void huffman_assign_code(int* CODES, int* PREFLEN, int NTEMP);
-  void huffman_assign_code(JBig2HuffmanCode* SBSYMCODES, int NTEMP);
+  std::vector<JBig2HuffmanCode> DecodeSymbolIDHuffmanTable(uint32_t SBNUMSYMS);
+  const CJBig2_HuffmanTable* GetHuffmanTable(size_t idx);
 
-  std::unique_ptr<CJBig2_Context> m_pGlobalContext;
-  std::unique_ptr<CJBig2_BitStream> m_pStream;
-  std::vector<std::unique_ptr<CJBig2_Segment>> m_SegmentList;
-  std::vector<std::unique_ptr<JBig2PageInfo>> m_PageInfoList;
-  std::unique_ptr<CJBig2_Image> m_pPage;
-  size_t m_nSegmentDecoded;
-  bool m_bInPage;
-  bool m_bBufSpecified;
-  int32_t m_PauseStep;
-  IFX_Pause* const m_pPause;
-  FXCODEC_STATUS m_ProcessingStatus;
-  std::vector<JBig2ArithCtx> m_gbContext;
-  std::unique_ptr<CJBig2_ArithDecoder> m_pArithDecoder;
-  std::unique_ptr<CJBig2_GRDProc> m_pGRD;
-  std::unique_ptr<CJBig2_Segment> m_pSegment;
-  uint32_t m_dwOffset;
-  JBig2RegionInfo m_ri;
-  std::list<CJBig2_CachePair>* const m_pSymbolDictCache;
-  bool m_bIsGlobal;
+  std::unique_ptr<CJBig2_Context> global_context_;
+  std::unique_ptr<CJBig2_BitStream> stream_;
+  std::vector<std::unique_ptr<CJBig2_Segment>> segment_list_;
+  std::vector<std::unique_ptr<JBig2PageInfo>> page_info_list_;
+  std::unique_ptr<CJBig2_Image> page_;
+  std::vector<std::unique_ptr<CJBig2_HuffmanTable>> huffman_tables_;
+  const bool is_global_;
+  bool in_page_ = false;
+  bool buf_specified_ = false;
+  int32_t pause_step_ = 10;
+  FXCODEC_STATUS processing_status_ = FXCODEC_STATUS::kFrameReady;
+  std::vector<JBig2ArithCtx> gb_contexts_;
+  std::unique_ptr<CJBig2_ArithDecoder> arith_decoder_;
+  std::unique_ptr<CJBig2_GRDProc> grd_;
+  std::unique_ptr<CJBig2_Segment> segment_;
+  uint32_t offset_ = 0;
+  JBig2RegionInfo ri_ = {};
+  UnownedPtr<std::list<CJBig2_CachePair>> const symbol_dict_cache_;
 };
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_CONTEXT_H_

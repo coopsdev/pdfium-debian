@@ -1,4 +1,4 @@
-// Copyright 2014 PDFium Authors. All rights reserved.
+// Copyright 2014 The PDFium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,14 @@
 #ifndef XFA_FXFA_PARSER_CSCRIPT_SIGNATUREPSEUDOMODEL_H_
 #define XFA_FXFA_PARSER_CSCRIPT_SIGNATUREPSEUDOMODEL_H_
 
-#include "fxjs/cfxjse_arguments.h"
-#include "xfa/fxfa/parser/xfa_object.h"
+#include "xfa/fxfa/parser/cxfa_object.h"
 
-class CScript_SignaturePseudoModel : public CXFA_Object {
+class CXFA_Document;
+
+class CScript_SignaturePseudoModel final : public CXFA_Object {
  public:
-  explicit CScript_SignaturePseudoModel(CXFA_Document* pDocument);
+  explicit CScript_SignaturePseudoModel(CXFA_Document* document);
   ~CScript_SignaturePseudoModel() override;
-
-  void Verify(CFXJSE_Arguments* pArguments);
-  void Sign(CFXJSE_Arguments* pArguments);
-  void Enumerate(CFXJSE_Arguments* pArguments);
-  void Clear(CFXJSE_Arguments* pArguments);
 };
 
 #endif  // XFA_FXFA_PARSER_CSCRIPT_SIGNATUREPSEUDOMODEL_H_
