@@ -17,7 +17,7 @@ jobs:
 
     steps:
     - name: Install LIBS
-      run: sudo apt install -y libopenjp2-7-dev libfast-float-dev libfreetype6-dev
+      run: sudo apt install -y libopenjp2-7-dev libfast-float-dev libfreetype6-dev libjpeg-turbo8-dev
 
     - uses: actions/checkout@v4
       with:
