@@ -1,4 +1,5 @@
 [![Support Ukraine](https://img.shields.io/badge/Support-Ukraine-FFD500?style=flat&labelColor=005BBB)](https://opensource.facebook.com/support-ukraine)
+[![Ubuntu-x64](https://github.com/OlexiyKhokhlov/PDFium//actions/workflows/ubuntu-x64.yml/badge.svg)](https://github.com/OlexiyKhokhlov/PDFium//actions/workflows/ubuntu-x64.yml)
 
 # PDFium
 PDFium is an open-source project which was developed by Foxit and Google. Google is responsible for
