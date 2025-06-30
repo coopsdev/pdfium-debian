@@ -10,12 +10,13 @@ which replaced codes that was previously closed source
 
 ## Difference with mainline
 
-- Build system is changed on 'cmake' as stadart de-facto build tool in the c++ world;
-- JS (V8) and XFA support are disabled without any plans to have them. So the result is lightweit and ideally fits for reader programs;
-- Was slightly reduced an external dependencyies. I e was removed `abseil-cpp`;
-- Is possible to enable/disable hieroglyphs cmaps;
+- Build system is changed to 'cmake' as standard de-facto build tool in the c++ world;
+- JS (V8) and XFA support are disabled without any plans to have them. So the result is lightweight and ideally fits for reader programs.
+- Was slightly reduced external dependencies. I e was removed `abseil-cpp`;
+- Is  possible to enable/disable hieroglyph cmaps;
 
 ## Dependencies
+
 - ICU;
 - FastFloat;
 - libjpeg;
@@ -26,4 +27,4 @@ which replaced codes that was previously closed source
 
 ## Current status
 
-Only Linux build is supported. In plans add Windows, Android, MacOS
+Only Linux builds is supported. In the plans to add Windows, Android, MacOS
