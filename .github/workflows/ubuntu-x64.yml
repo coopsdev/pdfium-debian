@@ -1,0 +1,29 @@
+name: Ubuntu-x64
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Ubuntu64"
+        default: "World"
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Release
+
+jobs:
+  Ubuntu-x64:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure CMake  Release
+      run: |
+        cmake -B ${{github.workspace}}/build-release \
+        -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build-Release
+      run: cmake --build ${{github.workspace}}/build-release --config ${{env.BUILD_TYPE}}
