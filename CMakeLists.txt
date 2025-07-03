@@ -33,6 +33,7 @@ set(USE_SYSTEM_FREETYPE ON CACHE BOOL "Use system freetype")
 set(USE_SYSTEM_JPEG ON CACHE BOOL "Use system libjpeg")
 set(USE_SYSTEM_OPENJPEG ON CACHE BOOL "Use system openjpeg")
 set(USE_SYSTEM_LCMS2 ON CACHE BOOL "Use system lcms2")
+set(USE_SYSTEM_FAST_FLOAT OFF CACHE BOOL "Use system fast_float")
 
 #hieroglyphs support
 set(USE_GB1_MAPS OFF CACHE BOOL "use GB1 maps")
@@ -43,11 +44,20 @@ set(USE_KOREA1_MAPS OFF CACHE BOOL "use KOREA1 maps")
 find_package(ICU COMPONENTS uc REQUIRED)
 add_definitions(-DUSE_SYSTEM_ICUUC)
 
-find_package(FastFloat REQUIRED)
+
+if(USE_SYSTEM_FAST_FLOAT)
+    find_package(FastFloat 8.0.0 REQUIRED)
+else()
+    add_library(FastFloat::fast_float INTERFACE IMPORTED)
+    set_target_properties(FastFloat::fast_float PROPERTIES
+      INTERFACE_COMPILE_FEATURES "cxx_std_11"
+      INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fast_float"
+    )
+endif()
 
 if(USE_SYSTEM_FREETYPE)
   find_package(Freetype REQUIRED)
-  include_directories(${FREETYPE_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS}/freetype)
+  include_directories(${FREETYPE_INCLUDE_DIRS} SYSTEM ${FREETYPE_INCLUDE_DIRS}/freetype)
   add_definitions(-DUSE_SYSTEM_FREETYPE -DDEFINE_PS_TABLES_DATA)
   #add_library(internal_freetype OBJECT empty.c)
 # else(USE_SYSTEM_FREETYPE)
@@ -1064,6 +1074,7 @@ target_link_libraries(pdfium
 PRIVATE
     ICU::uc
     JPEG::JPEG
+    FastFloat::fast_float
     ${FREETYPE_LIBRARIES}
     ${LCMS2_LIBRARY}
     ${ZLIB_LIBRARY}
