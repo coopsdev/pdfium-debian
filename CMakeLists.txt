@@ -31,8 +31,8 @@ set(USE_STATIC_LIBRARY OFF CACHE BOOL "Build as static library. Otherwise - shar
 set(USE_SYSTEM_ZLIB ON CACHE BOOL "Use system zlib")
 set(USE_SYSTEM_FREETYPE ON CACHE BOOL "Use system freetype")
 set(USE_SYSTEM_JPEG ON CACHE BOOL "Use system libjpeg")
-set(USE_SYSTEM_OPENJPEG ON CACHE BOOL "Use system openjpeg")
 set(USE_SYSTEM_LCMS2 ON CACHE BOOL "Use system lcms2")
+set(USE_SYSTEM_OPENJPEG OFF CACHE BOOL "Use system openjpeg")
 set(USE_SYSTEM_FAST_FLOAT OFF CACHE BOOL "Use system fast_float")
 
 #hieroglyphs support
@@ -96,10 +96,8 @@ if(USE_SYSTEM_OPENJPEG)
   find_package(OpenJpeg REQUIRED)
   include_directories(${OPENJPEG_INCLUDE_DIR})
   add_definitions(-DUSE_SYSTEM_OPENJPEG)
-#   add_library(internal_openjpeg OBJECT empty.c)
-# else(USE_SYSTEM_OPENJPEG)
-#   add_subdirectory(third_party/libopenjpeg20)
-#   add_definitions(-DOPJ_STATIC)
+else(USE_SYSTEM_OPENJPEG)
+   add_subdirectory(third_party/libopenjpeg)
 endif(USE_SYSTEM_OPENJPEG)
 
 set(CONSTANTS_SOURCES
@@ -1078,7 +1076,7 @@ PRIVATE
     ${FREETYPE_LIBRARIES}
     ${LCMS2_LIBRARY}
     ${ZLIB_LIBRARY}
-    ${OPENJPEG_LIBRARY}
+    OpenJpeg::OpenJpeg
 )
 
 set_property(TARGET pdfium

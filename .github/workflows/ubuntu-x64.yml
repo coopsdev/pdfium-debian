@@ -9,7 +9,7 @@ on:
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
-  BUILD_TYPE: Release
+  BUILD_TYPE: Debug
 
 jobs:
   Ubuntu-x64:
@@ -17,16 +17,16 @@ jobs:
 
     steps:
     - name: Install LIBS
-      run: sudo apt install -y libopenjp2-7-dev libfast-float-dev libfreetype6-dev libjpeg-turbo8-dev  liblcms2-dev
+      run: sudo apt install -y  libfreetype6-dev libjpeg-turbo8-dev  liblcms2-dev
 
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    - name: Configure CMake  Release
+    - name: Configure CMake Debug
       run: |
-        cmake -B ${{github.workspace}}/build-release \
+        cmake -B ${{github.workspace}}/build-debug \
         -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
-    - name: Build-Release
-      run: cmake --build ${{github.workspace}}/build-release --config ${{env.BUILD_TYPE}}
+    - name: Build-Debug
+      run: cmake --build ${{github.workspace}}/build-debug --config ${{env.BUILD_TYPE}}
