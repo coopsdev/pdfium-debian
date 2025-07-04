@@ -1040,9 +1040,9 @@ target_include_directories(pdfium PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pdfium
 PRIVATE
     AGG::agg
+    FastFloat::fast_float
     ICU::uc
     JPEG::JPEG
-    FastFloat::fast_float
     LCMS::lcms
     OpenJpeg::OpenJpeg
     ${ZLIB_LIBRARY}
