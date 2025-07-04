@@ -44,6 +44,7 @@ set(USE_KOREA1_MAPS OFF CACHE BOOL "use KOREA1 maps")
 find_package(ICU COMPONENTS uc REQUIRED)
 add_definitions(-DUSE_SYSTEM_ICUUC)
 
+add_subdirectory(third_party/agg23)
 
 if(USE_SYSTEM_FAST_FLOAT)
     find_package(FastFloat 8.0.0 REQUIRED)
@@ -84,12 +85,11 @@ if(USE_SYSTEM_ZLIB)
 endif(USE_SYSTEM_ZLIB)
 
 if(USE_SYSTEM_LCMS2)
-  find_package(LCMS2 REQUIRED)
+  find_package(LCMS2 2.15 REQUIRED)
   include_directories(${LCMS2_INCLUDE_DIRS})
   add_definitions(-DUSE_SYSTEM_LCMS2)
-#   add_library(internal_lcms2 OBJECT empty.c third_party/lcms2-2.6/src/cmsmd5.c)
-# else(USE_SYSTEM_LCMS2)
-#   add_subdirectory(third_party/lcms2-2.6)
+else(USE_SYSTEM_LCMS2)
+   add_subdirectory(third_party/lcms)
 endif(USE_SYSTEM_LCMS2)
 
 if(USE_SYSTEM_OPENJPEG)
@@ -965,36 +965,6 @@ set(FXJS_SOURCES
     fxjs/ijs_runtime.h
 )
 
-set(AGG_SOURCES
-    third_party/agg23/agg_array.h
-    third_party/agg23/agg_basics.h
-    third_party/agg23/agg_clip_liang_barsky.h
-    third_party/agg23/agg_color_gray.h
-    third_party/agg23/agg_conv_adaptor_vcgen.h
-    third_party/agg23/agg_conv_dash.h
-    third_party/agg23/agg_conv_stroke.h
-    third_party/agg23/agg_curves.cpp
-    third_party/agg23/agg_curves.h
-    third_party/agg23/agg_math.h
-    third_party/agg23/agg_math_stroke.h
-    third_party/agg23/agg_path_storage.cpp
-    third_party/agg23/agg_path_storage.h
-    third_party/agg23/agg_pixfmt_gray.h
-    third_party/agg23/agg_rasterizer_scanline_aa.cpp
-    third_party/agg23/agg_rasterizer_scanline_aa.h
-    third_party/agg23/agg_render_scanlines.h
-    third_party/agg23/agg_renderer_base.h
-    third_party/agg23/agg_renderer_scanline.h
-    third_party/agg23/agg_rendering_buffer.h
-    third_party/agg23/agg_scanline_u.h
-    third_party/agg23/agg_shorten_path.h
-    third_party/agg23/agg_vcgen_dash.cpp
-    third_party/agg23/agg_vcgen_dash.h
-    third_party/agg23/agg_vcgen_stroke.cpp
-    third_party/agg23/agg_vcgen_stroke.h
-    third_party/agg23/agg_vertex_sequence.h
-)
-
 set(PDFIUM_PUBLIC_CPP_HEADERS
     public/cpp/fpdf_deleters.h
     public/cpp/fpdf_scopers.h
@@ -1047,7 +1017,6 @@ set(ALL_SOURCES
   ${FPDF_SDK_FORMFILLER_SOURCES}
   ${FPDF_SDK_PWL_SOURCES}
   ${FXJS_SOURCES}
-  ${AGG_SOURCES}
   ${FPDF_MISC_SOURCES}
   ${PDFIUM_PUBLIC_HEADERS}
   ${PDFIUM_PUBLIC_CPP_HEADERS}
@@ -1070,13 +1039,14 @@ target_include_directories(pdfium PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(pdfium
 PRIVATE
+    AGG::agg
     ICU::uc
     JPEG::JPEG
     FastFloat::fast_float
-    ${FREETYPE_LIBRARIES}
-    ${LCMS2_LIBRARY}
-    ${ZLIB_LIBRARY}
+    LCMS::lcms
     OpenJpeg::OpenJpeg
+    ${ZLIB_LIBRARY}
+    ${FREETYPE_LIBRARIES}
 )
 
 set_property(TARGET pdfium
