@@ -16,21 +16,17 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Install deps
-      run: |
-        Invoke-WebRequest -Uri "https://sourceforge.net/projects/libjpeg-turbo/files/latest/download" -OutFile "libjpeg-turbo.exe"
-        Start-Process "libjpeg-turbo.exe" -ArgumentList "/S" -Wait
-        Invoke-WebRequest -Uri "https://github.com/ubawurinna/freetype-windows-binaries/releases/download/2.13.2/freetype-2.13.2-windows-x64.zip" -OutFile freetype.zip
-        Expand-Archive freetype.zip -DestinationPath freetype
-
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
+    - name: Install deps
+      run: |
+        cmake -DPDFIUM_BUILD_DIR=${{github.workspace}}/build-debug -P ${{github.workspace}}/.github/workflows/windows_deps.cmake
+
     - name: Configure CMake Debug
       run: |
-        cmake -B ${{github.workspace}}/build-debug \
-        -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+        cmake -B ${{github.workspace}}/build-debug -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
     - name: Build-Debug
       run: cmake --build ${{github.workspace}}/build-debug --config ${{env.BUILD_TYPE}}
