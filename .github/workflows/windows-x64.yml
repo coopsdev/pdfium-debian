@@ -1,0 +1,36 @@
+name: Windows-x64
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Windows'x64"
+        default: "World"
+
+env:
+  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_TYPE: Debug
+
+jobs:
+  Windows-x64:
+    runs-on: windows-latest
+
+    steps:
+    - name: Install deps
+       run: |
+         Invoke-WebRequest -Uri "https://sourceforge.net/projects/libjpeg-turbo/files/latest/download" -OutFile "libjpeg-turbo.exe"
+         Start-Process "libjpeg-turbo.exe" -ArgumentList "/S" -Wait
+         Invoke-WebRequest -Uri "https://github.com/ubawurinna/freetype-windows-binaries/releases/download/2.13.2/freetype-2.13.2-windows-x64.zip" -OutFile freetype.zip
+         Expand-Archive freetype.zip -DestinationPath freetype
+
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure CMake Debug
+      run: |
+        cmake -B ${{github.workspace}}/build-debug \
+        -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build-Debug
+      run: cmake --build ${{github.workspace}}/build-debug --config ${{env.BUILD_TYPE}}
