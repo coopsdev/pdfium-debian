@@ -22,7 +22,7 @@ maintainer:
 To use it:
 
 ```bash
-wget -qO - https://apt.vaulthalla.sh/pubkey.gpg | sudo tee /etc/apt/trusted.gpg.d/vaulthalla.gpg
-echo "deb [arch=amd64] https://apt.vaulthalla.sh stable main" | sudo tee /etc/apt/sources.list.d/vaulthalla.list
+wget -qO - https://apt.vaulthalla.sh/pubkey.gpg | sudo tee /etc/apt/trusted.gpg.d/vaulthalla.gpg > /dev/null
+echo "deb [arch=amd64] https://apt.vaulthalla.sh stable main" | sudo tee /etc/apt/sources.list.d/vaulthalla.list > /dev/null
 sudo apt update
 sudo apt install libpdfium-dev
