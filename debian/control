@@ -1,4 +1,4 @@
-Source: libpdfium-dev
+Source: libpdfium
 Section: libs
 Priority: optional
 Maintainer: Cooper Larson <cooper@valkyrianlabs.com>
@@ -6,26 +6,37 @@ Rules-Requires-Root: no
 Build-Depends:
  debhelper-compat (= 13),
  cmake,
+ libfreetype-dev,
+ liblcms2-dev,
+ libjpeg-dev
 Standards-Version: 4.6.2
-Homepage: <insert the upstream URL, if relevant>
-#Vcs-Browser: https://salsa.debian.org/debian/libpdfium-dev
-#Vcs-Git: https://salsa.debian.org/debian/libpdfium-dev.git
+Homepage: https://github.com/OlexiyKhokhlov/pdfium
+#Vcs-Browser: https://salsa.debian.org/debian/libpdfium
+#Vcs-Git: https://salsa.debian.org/debian/libpdfium.git
 
-Package: libpdfium-dev-dev
+Package: libpdfium-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
 Depends:
- libpdfium-devBROKEN (= ${binary:Version}),
- ${misc:Depends},
-Description: <insert up to 60 chars description>
- <Insert long description, indented with spaces.>
+ libpdfium20250629 (= ${binary:Version}),
+ libfreetype-dev,
+ liblcms2-dev,
+ libjpeg-dev,
+ ${misc:Depends}
+Description: development headers and libraries for PDFium
+ PDFium is a high-performance PDF rendering library originally developed
+ by Google. This package contains the headers, CMake files, and static/dynamic
+ libraries required to develop applications against PDFium.
 
-Package: libpdfium-devBROKEN
+Package: libpdfium20250629
+Section: libs
 Architecture: any
 Multi-Arch: same
 Depends:
  ${shlibs:Depends},
- ${misc:Depends},
-Description: <insert up to 60 chars description>
- <Insert long description, indented with spaces.>
+ ${misc:Depends}
+Description: PDFium rendering library snapshot (2025-06-29)
+ PDFium is a fast, high-quality C++ library for PDF rendering.
+ This package provides the shared runtime library built from a snapshot
+ of upstream on 2025-06-29.

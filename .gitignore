@@ -68,7 +68,16 @@
 *.xcodeproj
 *~
 
-# custom
+# debian and local env
 /cmake-build-debug/
 /.idea
 /.pc
+/obj-*-linux-gnu/
+/debian/.debhelper/
+/debian/tmp/
+/debian/libpdfium-dev/
+/debian/libpdfium*/
+/debian/files
+/debian/*.log
+/debian/*.substvars
+/debian/debhelper-build-stamp

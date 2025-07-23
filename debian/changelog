@@ -1,5 +1,5 @@
-libpdfium-dev (20250629-1) UNRELEASED; urgency=medium
+libpdfium (20250629-1) stable; urgency=medium
 
-  * Initial release. (Closes: #nnnn)  <nnnn is the bug number of your ITP>
+  * Initial Debian packaging of PDFium snapshot (2025-06-29)
 
- -- Cooper Larson <cooper@valkyrianlabs.com>  Wed, 23 Jul 2025 15:10:39 +0000
+ -- Cooper Larson <cooper@valkyrianlabs.com>  Wed, 24 Jul 2025 22:31:00 +0000
