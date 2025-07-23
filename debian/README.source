@@ -1,10 +1,68 @@
-libpdfium-dev for Debian
------------------------
+libpdfium for Debian
+------------------------
 
-<This file describes information about the source package, see Debian policy
-manual section 4.14. You WILL either need to modify or delete this file.>
+This package provides a Debian-compatible build of PDFium, Google's
+high-performance PDF rendering library, adapted via an independently
+maintained CMake-based build system originally developed by Olexiy Khokhlov
+and contributors.
 
+### Packaging rationale
 
+Google's official PDFium build system is Chromium-centric and incompatible
+with standard Debian workflows. This package uses a modern CMake-based port,
+making it far more maintainable and compliant with Debian Policy and
+best practices.
+
+### Upstream source
+
+The source used for this package is from:
+
+  https://github.com/OlexiyKhokhlov/pdfium
+
+While not the "official" upstream maintained by Google, this repository
+tracks upstream PDFium releases and provides a clean, CMake-first build
+layer more suited for integration with Linux distributions.
+
+### Modifications
+
+Several Debian-specific changes were made:
+
+- **CMake minimum version lowered** via quilt patch to allow building with
+  CMake 3.28, the current version in Debian stable.
+- **Quilt patch series** manages compatibility and minor adjustments for
+  packaging.
+- **Clean split of runtime (`libpdfium20250629`) and development (`libpdfium-dev`) packages**, following standard naming and policy.
+
+### Attribution and upstream credit
+
+Though this packaging work was created independently, it builds upon the
+efforts of:
+
+- The upstream PDFium project (BSD-3-Clause), maintained by Google
+- Olexiy Khokhlov’s CMake integration project
+- Over 30 additional contributors to the CMake-based PDFium port
+
+Redistributors are kindly encouraged (though not required) to acknowledge
+those contributors when distributing this packaging.
+
+### Snapshot versioning
+
+This package tracks a specific upstream snapshot. The version string format
+is:
+
+    <YYYYMMDD>-1
+
+For this build:
+
+    20250629-1
+
+This allows packaging of upstream revisions without waiting for formal
+releases.
+
+### Long-term goals
+
+If there is community interest, this packaging could serve as a base for
+eventual inclusion in the official Debian archive. At present, it is hosted
+via an unofficial APT repository (see https://apt.vaulthalla.sh).
 
  -- Cooper Larson <cooper@valkyrianlabs.com>  Wed, 23 Jul 2025 15:10:39 +0000
-

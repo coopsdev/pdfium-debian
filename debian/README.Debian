@@ -1,6 +1,28 @@
-libpdfium-dev for Debian
------------------------
+libpdfium for Debian
+------------------------
 
-<Possible notes regarding this package - if none, delete this file.>
+This package provides development files for PDFium, a high-performance PDF
+rendering library originally developed by Google and used in Chromium.
 
- -- Cooper Larson <cooper@valkyrianlabs.com>  Wed, 23 Jul 2025 15:10:39 +0000
+Unlike the upstream build system, which relies on GN/Ninja and Chromium's
+tooling, this Debian package uses a clean CMake-based build system developed
+by the open-source community. This makes it easier to maintain, audit, and
+integrate into Debian-based distributions.
+
+The shared library (`libpdfium20250629`) and headers (`libpdfium-dev`) are
+split into separate packages in accordance with Debian packaging policy.
+
+### Unofficial Repository
+
+You can install this package via the unofficial APT repo hosted by the
+maintainer:
+
+    https://apt.vaulthalla.sh
+
+To use it:
+
+```bash
+wget -qO - https://apt.vaulthalla.sh/pubkey.gpg | sudo tee /etc/apt/trusted.gpg.d/vaulthalla.gpg
+echo "deb [arch=amd64] https://apt.vaulthalla.sh stable main" | sudo tee /etc/apt/sources.list.d/vaulthalla.list
+sudo apt update
+sudo apt install libpdfium-dev
