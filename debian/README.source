@@ -63,6 +63,6 @@ releases.
 
 If there is community interest, this packaging could serve as a base for
 eventual inclusion in the official Debian archive. At present, it is hosted
-via an unofficial APT repository (see https://apt.vaulthalla.sh).
+via an unofficial APT repository (see https://apt.valkyrianlabs.com).
 
  -- Cooper Larson <cooper@valkyrianlabs.com>  Wed, 23 Jul 2025 15:10:39 +0000

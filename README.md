@@ -7,8 +7,8 @@
 > Add the Valkyrian Labs unofficial apt repo and install with one command:
 >
 > ```bash
-> wget -qO - https://apt.vaulthalla.sh/pubkey.gpg | sudo tee /etc/apt/trusted.gpg.d/vaulthalla.gpg > /dev/null
-> echo "deb [arch=amd64] https://apt.vaulthalla.sh stable main" | sudo tee /etc/apt/sources.list.d/vaulthalla.list > /dev/null
+> wget -qO - https://apt.valkyrianlabs.com/pubkey.gpg | sudo tee /etc/apt/trusted.gpg.d/vaulthalla.gpg > /dev/null
+> echo "deb [arch=amd64] https://apt.valkyrianlabs.com stable main" | sudo tee /etc/apt/sources.list.d/vaulthalla.list > /dev/null
 > sudo apt update
 > sudo apt install libpdfium-dev
 > ```
