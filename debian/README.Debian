@@ -22,7 +22,7 @@ maintainer:
 To use it:
 
 ```bash
-wget -qO - https://apt.valkyrianlabs.com/pubkey.gpg | sudo tee /etc/apt/trusted.gpg.d/valkyrianlabs.gpg > /dev/null
+sudo curl -fsSL https://apt.valkyrianlabs.com/pubkey.gpg -o /etc/apt/trusted.gpg.d/valkyrianlabs.gpg
 echo "deb [arch=amd64] https://apt.valkyrianlabs.com stable main" | sudo tee /etc/apt/sources.list.d/valkyrianlabs.list > /dev/null
 sudo apt update
 sudo apt install libpdfium-dev
