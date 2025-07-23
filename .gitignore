@@ -70,4 +70,5 @@
 
 # custom
 /cmake-build-debug/
-.idea
+/.idea
+/.pc

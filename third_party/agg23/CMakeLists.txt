@@ -1,4 +1,4 @@
-CMAKE_MINIMUM_REQUIRED (VERSION 3.31 FATAL_ERROR)
+CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
 project(agg
     VERSION 2.3
     DESCRIPTION "High quality rendering engine library for C++"

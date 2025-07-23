@@ -1,4 +1,4 @@
-CMAKE_MINIMUM_REQUIRED (VERSION 3.31 FATAL_ERROR)
+CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
 project(lcms
     VERSION 2.15
     DESCRIPTION "A lightweight, speed optimized color management engine"

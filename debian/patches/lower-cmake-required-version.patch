@@ -1,0 +1,40 @@
+Index: pdfium-debian/CMakeLists.txt
+===================================================================
+--- pdfium-debian.orig/CMakeLists.txt
++++ pdfium-debian/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-CMAKE_MINIMUM_REQUIRED (VERSION 3.31 FATAL_ERROR)
++CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
+ project(pdfium
+     VERSION 20250629
+     DESCRIPTION "PDF rendering library"
+Index: pdfium-debian/third_party/agg23/CMakeLists.txt
+===================================================================
+--- pdfium-debian.orig/third_party/agg23/CMakeLists.txt
++++ pdfium-debian/third_party/agg23/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-CMAKE_MINIMUM_REQUIRED (VERSION 3.31 FATAL_ERROR)
++CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
+ project(agg
+     VERSION 2.3
+     DESCRIPTION "High quality rendering engine library for C++"
+Index: pdfium-debian/third_party/lcms/CMakeLists.txt
+===================================================================
+--- pdfium-debian.orig/third_party/lcms/CMakeLists.txt
++++ pdfium-debian/third_party/lcms/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-CMAKE_MINIMUM_REQUIRED (VERSION 3.31 FATAL_ERROR)
++CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
+ project(lcms
+     VERSION 2.15
+     DESCRIPTION "A lightweight, speed optimized color management engine"
+Index: pdfium-debian/third_party/libopenjpeg/CMakeLists.txt
+===================================================================
+--- pdfium-debian.orig/third_party/libopenjpeg/CMakeLists.txt
++++ pdfium-debian/third_party/libopenjpeg/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-CMAKE_MINIMUM_REQUIRED (VERSION 3.31 FATAL_ERROR)
++CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
+ project(openjpeg
+     VERSION 2.5.3
+     DESCRIPTION "Open-source JPEG 2000 library"
