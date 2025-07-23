@@ -1,3 +1,4 @@
 usr/include/*
 usr/lib/${DEB_HOST_MULTIARCH}/libpdfium.so
 usr/lib/${DEB_HOST_MULTIARCH}/cmake/pdfium/*.cmake
+debian/libpdfium.pc usr/lib/${DEB_HOST_MULTIARCH}/pkgconfig/
