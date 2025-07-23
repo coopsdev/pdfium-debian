@@ -68,3 +68,6 @@
 *.xcodeproj
 *~
 
+# custom
+/cmake-build-debug/
+.idea

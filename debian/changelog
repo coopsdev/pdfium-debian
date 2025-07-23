@@ -1,0 +1,5 @@
+libpdfium-dev (20250629-1) UNRELEASED; urgency=medium
+
+  * Initial release. (Closes: #nnnn)  <nnnn is the bug number of your ITP>
+
+ -- Cooper Larson <cooper@valkyrianlabs.com>  Wed, 23 Jul 2025 15:10:39 +0000
