@@ -49,7 +49,7 @@ Comment:
 
   - Preserve this copyright notice.
   - Credit Cooper Larson as the Debian packager.
-  - Credit Olexiy Khokhlov for the CMake build system integration.
+  - Credit Olexiy Khokhlov and contributors for the CMake build system integration.
   - Credit the upstream PDFium team and contributors.
   - Document significant modifications to this packaging work.
 
