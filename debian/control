@@ -8,7 +8,10 @@ Build-Depends:
  cmake,
  libfreetype-dev,
  liblcms2-dev,
- libjpeg-dev
+ libjpeg-dev,
+ zlib1g-dev,
+ libicu-dev,
+ libopenjp2-7-dev
 Standards-Version: 4.6.2
 Homepage: https://github.com/OlexiyKhokhlov/pdfium
 #Vcs-Browser: https://salsa.debian.org/debian/libpdfium
@@ -19,17 +22,20 @@ Section: libdevel
 Architecture: any
 Multi-Arch: same
 Depends:
- libpdfium20250629 (= ${binary:Version}),
+ libpdfium-2025.06.29 (= ${binary:Version}),
  libfreetype-dev,
  liblcms2-dev,
  libjpeg-dev,
+ zlib1g-dev,
+ libicu-dev,
+ libopenjp2-7-dev,
  ${misc:Depends}
 Description: development headers and libraries for PDFium
  PDFium is a high-performance PDF rendering library originally developed
  by Google. This package contains the headers, CMake files, and static/dynamic
  libraries required to develop applications against PDFium.
 
-Package: libpdfium20250629
+Package: libpdfium-2025.06.29
 Section: libs
 Architecture: any
 Multi-Arch: same

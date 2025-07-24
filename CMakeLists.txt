@@ -1,6 +1,6 @@
 CMAKE_MINIMUM_REQUIRED (VERSION 3.28 FATAL_ERROR)
 project(pdfium
-    VERSION 20250629
+    VERSION 2025.06.29
     DESCRIPTION "PDF rendering library"
     HOMEPAGE_URL "https://github.com/OlexiyKhokhlov/pdfium"
     LANGUAGES C CXX

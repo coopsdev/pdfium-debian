@@ -5,6 +5,6 @@ includedir=${prefix}/include
 
 Name: PDFium
 Description: PDF rendering library from Chromium
-Version: 20250629
+Version: 2025.06.29
 Libs: -L${libdir} -lpdfium
 Cflags: -I${includedir}
