@@ -7,7 +7,7 @@
 > Add the Valkyrian Labs unofficial apt repo and install with one command:
 >
 > ```bash
-> sudo curl -fsSL https://apt.valkyrianlabs.com/valkyrianlabs.gpg -o /etc/apt/trusted.gpg.d/valkyrianlabs.gpg
+> sudo curl -fsSL https://apt.valkyrianlabs.com/pubkey.gpg -o /etc/apt/trusted.gpg.d/valkyrianlabs.gpg
 > echo "deb [arch=amd64] https://apt.valkyrianlabs.com stable main" | sudo tee /etc/apt/sources.list.d/valkyrianlabs.list > /dev/null
 > sudo apt update
 > sudo apt install libpdfium-dev
