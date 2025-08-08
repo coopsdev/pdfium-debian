@@ -1064,6 +1064,20 @@ add_library(Pdfium::pdfium ALIAS pdfium)
 ### Install
 include(GNUInstallDirs)
 
+# Generate pdfium.pc from template
+configure_file(
+        ${CMAKE_SOURCE_DIR}/debian/libpdfium.pc.in
+        ${CMAKE_BINARY_DIR}/pdfium.pc
+        @ONLY
+)
+
+# Install it to the multiarch pkgconfig dir
+install(FILES
+        ${CMAKE_BINARY_DIR}/pdfium.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+)
+
+
 install(TARGETS ${PROJECT_NAME}
         EXPORT ${PROJECT_NAME}
         LIBRARY DESTINATION  ${CMAKE_INSTALL_LIBDIR}
