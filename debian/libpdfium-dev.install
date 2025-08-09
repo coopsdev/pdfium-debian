@@ -1,4 +1,4 @@
 usr/lib/*/libpdfium.so
-usr/include/*
 usr/lib/*/pkgconfig/pdfium.pc
-usr/lib/*/cmake/pdfium/*.cmake
+usr/lib/*/cmake/pdfium/*
+usr/include/pdfium/**

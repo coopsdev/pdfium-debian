@@ -1064,6 +1064,12 @@ add_library(Pdfium::pdfium ALIAS pdfium)
 ### Install
 include(GNUInstallDirs)
 
+set_target_properties(pdfium PROPERTIES
+        OUTPUT_NAME pdfium
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+)
+
 # Generate pdfium.pc from template
 configure_file(
         ${CMAKE_SOURCE_DIR}/debian/libpdfium.pc.in

@@ -3,6 +3,12 @@
 %:
 	dh $@ --buildsystem=cmake
 
+override_dh_shlibdeps:
+	dh_shlibdeps -Nlibpdfium-dev
+
+override_dh_missing:
+	dh_missing --fail-missing
+
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DBUILD_SHARED_LIBS=ON \
