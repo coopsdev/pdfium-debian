@@ -15,7 +15,7 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_C_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fvisibility=hidden -Wno-return-type")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fvisibility=hidden -Wno-return-type -D_GLIBCXX_USE_CXX11_ABI=1")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Wl,-z,defs")
 
@@ -1077,30 +1077,31 @@ configure_file(
         @ONLY
 )
 
-# Install it to the multiarch pkgconfig dir
+# Install .pc file
 install(FILES
         ${CMAKE_BINARY_DIR}/pdfium.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
 )
 
-
-install(TARGETS ${PROJECT_NAME}
+# Install main library + static deps (if linked internally)
+install(TARGETS ${PROJECT_NAME} # agg openjpeg  # enable for static linking
         EXPORT ${PROJECT_NAME}
         LIBRARY DESTINATION  ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION  ${CMAKE_INSTALL_LIBDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/pdfium
 )
 
-# Install a few headers manually since install TARGETS ignores nested dirs
+# Install extra headers
 install(FILES
-    ${PDFIUM_PUBLIC_CPP_HEADERS}
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/pdfium/cpp
+        ${PDFIUM_PUBLIC_CPP_HEADERS}
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/pdfium/cpp
 )
 
+# Export the targets for CMake consumers
 install(EXPORT ${PROJECT_NAME}
         FILE PdfiumTargets.cmake
         NAMESPACE Pdfium::
-        DESTINATION  ${CMAKE_INSTALL_LIBDIR}/cmake/pdfium
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/pdfium
 )
 
 include(CMakePackageConfigHelpers)
